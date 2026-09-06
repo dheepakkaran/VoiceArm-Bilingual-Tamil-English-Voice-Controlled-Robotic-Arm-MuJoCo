@@ -1,0 +1,80 @@
+<mujoco model="voicearm_scene">
+  <include file="mujoco_menagerie/franka_emika_panda/panda.xml"/>
+
+  <!-- must come after the include so it overrides panda.xml's relative meshdir -->
+  <compiler meshdir="mujoco_menagerie/franka_emika_panda/assets"
+            texturedir="mujoco_menagerie/franka_emika_panda/assets"/>
+
+  <statistic center="0.45 0 0.45" extent="1.1"/>
+
+  <visual>
+    <headlight diffuse="0.35 0.35 0.35" ambient="0.22 0.22 0.22" specular="0 0 0"/>
+    <global azimuth="150" elevation="-25" offwidth="640" offheight="480"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.28 0.33 0.42" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.22 0.24 0.26" rgb2="0.28 0.30 0.32" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+              texrepeat="5 5" reflectance="0.1"/>
+    <material name="tabletop"  rgba="0.42 0.36 0.30 1"/>
+    <material name="mat_red"   rgba="0.85 0.12 0.12 1"/>
+    <material name="mat_green" rgba="0.12 0.70 0.20 1"/>
+    <material name="mat_blue"  rgba="0.12 0.30 0.88 1"/>
+    <material name="mat_bowl"  rgba="0.90 0.90 0.93 1" specular="0.3"/>
+  </asset>
+
+  <default>
+    <default class="block">
+      <geom type="box" size="0.02 0.02 0.02" mass="0.05"
+            friction="1.2 0.02 0.001" solref="0.004 1" solimp="0.95 0.99 0.001"/>
+    </default>
+    <default class="bowlwall">
+      <geom type="box" material="mat_bowl" friction="0.6 0.005 0.0001"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light pos="0.4 0 2.2" dir="0 0 -1" directional="true" diffuse="0.35 0.35 0.35"/>
+    <light pos="1.2 -0.8 1.6" dir="-0.5 0.4 -1" diffuse="0.3 0.3 0.3"/>
+
+    <geom name="floor" type="plane" size="3 3 0.05" material="groundplane"/>
+
+    <!-- table: top surface at z = 0.40 -->
+    <body name="table" pos="0.55 0 0.20">
+      <geom name="table_top" type="box" size="0.30 0.40 0.20" material="tabletop"
+            friction="0.8 0.01 0.0001"/>
+    </body>
+
+    <!-- Overhead camera. Frame z = x_cam cross y_cam = +Z, so it looks straight
+         down. Axes are rotated so the image's wide dimension covers the table's
+         wide dimension (world y), which keeps the whole worktop in frame. -->
+    <camera name="topcam" pos="0.52 0 1.30" xyaxes="0 1 0 -1 0 0" fovy="45" mode="fixed"/>
+
+    <body name="red_block" pos="0.42 -0.18 0.421">
+      <freejoint name="red_free"/>
+      <geom name="red_geom" class="block" material="mat_red"/>
+    </body>
+    <body name="green_block" pos="0.42 0.00 0.421">
+      <freejoint name="green_free"/>
+      <geom name="green_geom" class="block" material="mat_green"/>
+    </body>
+    <body name="blue_block" pos="0.42 0.18 0.421">
+      <freejoint name="blue_free"/>
+      <geom name="blue_geom" class="block" material="mat_blue"/>
+    </body>
+
+    <!-- open-topped square container, inner half-extent 0.07, wall height 0.05 -->
+    <body name="bowl" pos="0.68 0.00 0.40">
+      <geom name="bowl_base" class="bowlwall" pos="0 0 0.005" size="0.08 0.08 0.005"/>
+      <geom name="bowl_wx+"  class="bowlwall" pos=" 0.075 0 0.03" size="0.005 0.08 0.03"/>
+      <geom name="bowl_wx-"  class="bowlwall" pos="-0.075 0 0.03" size="0.005 0.08 0.03"/>
+      <geom name="bowl_wy+"  class="bowlwall" pos="0  0.075 0.03" size="0.08 0.005 0.03"/>
+      <geom name="bowl_wy-"  class="bowlwall" pos="0 -0.075 0.03" size="0.08 0.005 0.03"/>
+      <site name="bowl_center" pos="0 0 0.06" size="0.005" rgba="1 1 0 0"/>
+    </body>
+  </worldbody>
+</mujoco>
