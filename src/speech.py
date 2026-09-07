@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import config
+from .memory import release_caches
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +130,7 @@ def transcribe_tamil(audio: np.ndarray) -> str:
         _tamil_pipe.model.config.forced_decoder_ids = (
             _tamil_pipe.tokenizer.get_decoder_prompt_ids(language="ta", task="transcribe")
         )
+        release_caches()
     return _tamil_pipe(audio.copy())["text"].strip()
 
 
@@ -206,6 +208,7 @@ def route(audio: np.ndarray) -> Transcript:
             f"every ASR backend returned an empty transcript (audio rms {level:.4f})"
         )
 
+    release_caches()
     return Transcript(text=text, source=source, lang=lang,
                       latency_s=time.perf_counter() - t0, candidates=candidates)
 

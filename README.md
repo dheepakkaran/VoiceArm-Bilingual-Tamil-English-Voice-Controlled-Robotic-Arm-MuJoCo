@@ -285,22 +285,62 @@ tests/test_smoke.py smoke suite
 
 ## Model selection
 
-`sarvam-m` (24 B) is the strongest open model for Tamil, but at 4-bit it needs
-roughly 13 GB — it cannot co-reside with the detector and both ASR models on a
-16 GB machine. `Qwen3-8B-4bit` (~4.7 GB) was chosen instead so the full stack
-stays under ~8 GB resident. This is a hardware constraint, not a quality claim.
+Every choice below was measured on this machine, not assumed.
 
-## Limitations
+**Planner: `Qwen3-4B-4bit`, not 8B.** Both models produced a correct plan on all
+8 test utterances (English, Tanglish, Tamil script), so the larger model bought
+nothing on this task:
 
-- Simulation only. Nothing here has been run on hardware and no sim-to-real
-  transfer is claimed.
-- The M6 audio is synthesised Tamil TTS. Code-switched Tanglish is the case both
-  ASR models handle worst and it has not been tested against a real speaker.
-- 8 utterances over 4 objects is a smoke test, not an evaluation. There is no
-  held-out set, no ablation of the ASR router, and no human baseline.
-- Grasping is top-down only, on cubes sized for the gripper.
-- `sarvam-m` would very likely plan Tamil better; it was excluded on memory
-  grounds alone (see above), not measured against.
+| planner | plans correct | mean generation | MLX active |
+|---|---|---|---|
+| **Qwen3-4B-4bit** | **8/8** | **0.87 s** | **2.26 GB** |
+| Qwen3-8B-4bit | 8/8 | 1.55 s | 4.61 GB |
+
+**`sarvam-m` (24 B) was rejected on footprint.** It is the strongest open model
+for Tamil, but at 4-bit it needs roughly 13 GB and cannot co-reside with the
+detector and both ASR models. That is a hardware constraint, not a quality
+claim — with more memory it would be worth revisiting, especially since the
+planner does have to read Tanglish.
+
+**ASR: both, with a router.** See the CER table above. The specialist wins on
+Tamil and is Tamil-only, so neither model is a safe default alone.
+
+## Performance
+
+End-to-end stage latency with all models resident, same input repeated:
+
+| run | ASR | plan | perceive | total |
+|---|---|---|---|---|
+| cold | 16.63 s | 4.33 s | 4.04 s | 25.00 s |
+| warm 1 | 8.15 s | 4.87 s | 1.11 s | 14.13 s |
+| warm 2 | 6.44 s | 1.73 s | 0.87 s | 9.04 s |
+| warm 3 | 4.94 s | 1.42 s | 0.94 s | **7.30 s** |
+
+MLX active memory 5.35 GB, peak 5.93 GB.
+
+**Allocator pressure, not compute, dominated the first version.** With the 8B
+planner the same loop ran 45 s and got *slower* every iteration, reaching 63 s.
+The cause was not model size in isolation: MLX and torch each keep an allocator
+pool that survives a forward pass, and with four models resident those pools
+were enough to start paging. Calling `mx.clear_cache()` once took a single plan
+call from 37.5 s to 1.7 s — a 22x swing with no change to the model.
+
+`src/memory.py` now drops both caches at stage boundaries. **Doing it inside the
+hot path made things worse**: clearing after every `transcribe()` call forced a
+full reallocation on the next operation and pushed the loop back to 60 s. The
+cache is there for a reason; only the boundaries between models are worth
+clearing.
+
+**Interleaved access is the expensive pattern.** Measuring all ASR calls, then
+all planner calls, then all detector calls looked fast. Running one command at a
+time — ASR, then plan, then detect — is 5-10x slower, because each switch pages
+the previous model out. That is the real workload, so that is what the table
+above reports.
+
+**Some of this is the machine, not the code.** `vm.swapusage` showed 20.1 GB of
+21.5 GB swap already in use before this project started, spread across many
+ordinary applications rather than any single large process. On a machine with
+free swap these numbers would be better; they are reported as measured.
 
 ## License
 

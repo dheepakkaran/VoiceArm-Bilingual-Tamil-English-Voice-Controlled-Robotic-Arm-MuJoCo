@@ -12,6 +12,7 @@ import mujoco
 import numpy as np
 
 from . import config
+from .memory import release_caches
 from .sim import SimEnv
 
 log = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ def _load():
     _processor = AutoProcessor.from_pretrained(config.DETECTOR)
     _model = (AutoModelForZeroShotObjectDetection
               .from_pretrained(config.DETECTOR).to(_device).eval())
+    release_caches()
     return _model, _processor, _device
 
 
@@ -115,6 +117,7 @@ def detect(rgb: np.ndarray, queries: list[str],
 
     with torch.no_grad():
         outputs = model(**inputs)
+    release_caches()
 
     target = torch.tensor([[image.height, image.width]])
     post = getattr(processor, "post_process_grounded_object_detection", None) \

@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from . import config
+from .memory import release_caches
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ def _load():
     t0 = time.perf_counter()
     log.info("loading %s", config.LLM_MODEL)
     _llm, _tokenizer = load(config.LLM_MODEL)
+    release_caches()
     log.info("planner ready in %.1f s", time.perf_counter() - t0)
     return _llm, _tokenizer
 
@@ -137,6 +139,7 @@ def _generate(utterance: str, nudge: str = "") -> str:
     from mlx_lm.sample_utils import make_sampler
 
     model, tokenizer = _load()
+    release_caches()          # ASR and detection pools would otherwise page us out
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT + nudge},
         {"role": "user", "content": utterance},

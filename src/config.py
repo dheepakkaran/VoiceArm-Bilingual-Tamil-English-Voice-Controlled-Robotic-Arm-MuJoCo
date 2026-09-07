@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,7 +43,7 @@ WAYPOINT_STEPS = 60
 GRASP_SNAP_DIST = 0.03     # m, weld fallback threshold
 
 # --- models (later milestones) ---------------------------------------------
-LLM_MODEL = "mlx-community/Qwen3-8B-4bit"
+LLM_MODEL = "mlx-community/Qwen3-4B-4bit"
 ASR_MULTILINGUAL = "mlx-community/whisper-large-v3-mlx"
 ASR_TAMIL = "vasista22/whisper-tamil-medium"
 DETECTOR = "google/owlv2-base-patch16-ensemble"
@@ -52,3 +53,14 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
     datefmt="%H:%M:%S",
 )
+
+# The Hub clients emit one INFO line per HTTP request and probe a dozen optional
+# config files per model, which buries our own output under hundreds of lines.
+for _noisy in ("httpx", "httpcore", "urllib3", "filelock",
+               "huggingface_hub", "huggingface_hub.utils._http"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
+
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
