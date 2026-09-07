@@ -39,12 +39,28 @@ Allowed actions: "pick", "place", "move_to", "say".
 "a red cube" or "a white bowl". It is passed to a vision model, so describe the
 object rather than naming a variable.
 
+Romanized Tamil words you will see, with their meanings:
+  sivappu / sivapu = red        pachai / pachchai = green
+  neelam / neela = blue         manjal = yellow
+  kattai / block / cube = cube  kinnam / bowl = bowl
+  edu / eduthu = pick up        vai / vei / podu = put, place
+  -ah, -ai, -ya = object marker (ignore it)
+  -la, -le, -il = "in" or "on"  (ignore it)
+
+So "sivappu block-ah bowl-la vai" means "put the red cube in the bowl".
+
 Examples:
 "put the red block in the bowl"
 [{"action":"pick","target":"a red cube"},{"action":"place","target":"a white bowl"}]
 
 "pachai block-ah edu"
 [{"action":"pick","target":"a green cube"}]
+
+"sivappu block-ah bowl-la vai"
+[{"action":"pick","target":"a red cube"},{"action":"place","target":"a white bowl"}]
+
+"neela kattai-ah edu"
+[{"action":"pick","target":"a blue cube"}]
 
 "நீல கட்டையை கிண்ணத்தில் வை"
 [{"action":"pick","target":"a blue cube"},{"action":"place","target":"a white bowl"}]

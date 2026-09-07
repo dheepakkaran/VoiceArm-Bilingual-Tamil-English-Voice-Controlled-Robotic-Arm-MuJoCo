@@ -21,11 +21,11 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 | **M2** | Forward + inverse kinematics | ✅ done |
 | **M3** | Grasp primitives (pick & place) | ✅ done |
 | **M4** | Open-vocabulary perception (OWLv2 + depth) | ✅ done |
-| M5 | Local LLM task planner | ⬜ next |
-| M6 | Dual-ASR Tamil/English speech router | ⬜ |
-| M7 | Episode logging + Streamlit dashboard | ⬜ |
+| **M5** | Local LLM task planner | ✅ done |
+| **M6** | Dual-ASR Tamil/English speech router | ✅ done |
+| **M7** | Episode logging + Streamlit dashboard | ✅ done |
 
-## Pipeline (target)
+## Pipeline
 
 ```
   mic ──► Whisper large-v3 (MLX) ──┐
@@ -87,7 +87,44 @@ ground truth:
 
 **4 / 4 within 3 cm**, mean error **0.66 cm**.
 
-Reproduce with `./run.sh m1` … `./run.sh m4`.
+**M5 — local LLM planner**, `Qwen3-8B-4bit` via MLX, no cloud API:
+
+| Language | Utterances | Executed |
+|---|---|---|
+| English | 2 | 2 |
+| Tanglish (romanized) | 3 | 3 |
+| Tamil script | 3 | 3 |
+| **Total** | **8** | **8** |
+
+Median plan latency **1.86 s** (first call 10.4 s, cold cache). Every one of the
+eight was planned by the LLM; the regex fallback was not needed.
+
+**M6 — dual-ASR router.** Tamil audio, both backends transcribed correctly and
+the router picked the specialist:
+
+| Model | Transcript |
+|---|---|
+| whisper-large-v3 (MLX) | சிவப்பு கட்டையை கிண்ணத்தில் வை. |
+| whisper-tamil-medium | சிவப்பு கட்டையை கிண்ணத்தில் வை ← chosen |
+
+Detected language `ta`, Tamil script ratio 1.00. The cleanup pass turned that
+into *"Put the red cube in the bowl."*, which planned and executed successfully.
+
+> The M6 clip is macOS `say -v Vani` synthesis, not a human recording, and the
+> script says so at runtime. Real-speaker accuracy — especially on Tanglish — is
+> untested and should be assumed worse.
+
+**M7 — aggregate over the 9 logged episodes** (8 typed + 1 spoken):
+
+| Metric | Value |
+|---|---|
+| Success rate | **9 / 9** |
+| Mean detection error | **0.37 cm** (max 0.50 cm) |
+| Mean episode duration | 5.6 s |
+| Median LLM latency | 1.86 s |
+| Warm ASR latency | 13–20 s |
+
+Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
 ## Setup
 
@@ -107,6 +144,12 @@ cloning the full repository.
 ./run.sh m2      # IK accuracy table over 10 random targets
 ./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
 ./run.sh m4      # open-vocabulary detection + 3D grounding vs ground truth
+./run.sh m5      # eight Tamil / English / Tanglish commands, end to end
+./run.sh app     # Streamlit dashboard on http://localhost:8501
+
+.venv/bin/python scripts/m6_voice.py             # synthesised Tamil clip
+.venv/bin/python scripts/m6_voice.py --mic       # speak into the microphone
+.venv/bin/python scripts/m6_voice.py --wav f.wav # your own recording
 ./run.sh test    # pytest smoke suite
 ```
 
@@ -147,6 +190,26 @@ angle unit from the compiler, and the vendored `panda.xml` sets
 `angle="radian"`; degree-valued `euler` attributes were silently reinterpreted
 and produced a starburst instead of a bowl.
 
+**All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
+owns an OpenGL context bound to its creating thread. Streamlit reruns the script
+on a different ScriptRunner thread each time, and on macOS both reusing a
+context across threads *and* creating a second one from another thread deadlock
+rather than raise — the dashboard hung silently on its first command. `SimEnv`
+now owns a single-worker executor; every render is submitted to it and the
+caller blocks on the result.
+
+**The planner prompt carries a romanized-Tamil glossary.** Qwen3 reads Tamil
+script well but did not know `sivappu` means red — it planned a pick on the bowl
+for *"sivappu block-ah bowl-la vai"*. Adding a short colour/verb glossary and two
+Tanglish examples to the system prompt took that case from wrong to correct, and
+all 8 M5 utterances now plan through the LLM.
+
+**Transit waypoints degrade instead of aborting.** Perception put the container
+5 mm further out than ground truth, which pushed the approach waypoint just past
+the top-down workspace and failed the whole episode at 9.2 mm of IK error. Place
+approaches are lower than lift approaches now, and a transit waypoint that
+stalls within 2 cm is accepted rather than raised — precision there buys nothing.
+
 **IK is damped least squares on the site Jacobian.** `mink` is used when it is
 installed; the built-in solver is the default path and is what the numbers above
 were measured with. Step size is clamped and joint limits are enforced each
@@ -170,6 +233,11 @@ src/sim.py          SimEnv — model build, actuation, rendering
 src/kinematics.py   FK, damped-least-squares IK (3- and 6-DoF), interpolation
 src/grasp.py        top-down pick / place primitives from Cartesian waypoints
 src/perception.py   RGB-D capture, OWLv2 detection, pinhole 3D grounding
+src/planner.py      local Qwen3 planner + deterministic Tamil regex fallback
+src/speech.py       dual-ASR script router and transcript cleanup
+src/executor.py     utterance -> plan -> perception -> motion -> episode
+src/episodes.py     LeRobot-compatible parquet logging
+app.py              Streamlit dashboard
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
 tests/test_smoke.py smoke suite
@@ -183,9 +251,10 @@ tests/test_smoke.py smoke suite
 | Robot | Franka Emika Panda (`mujoco_menagerie`) |
 | IK | Damped least squares (`mink` optional) |
 | Perception | OWLv2 (`google/owlv2-base-patch16-ensemble`) |
-| Planner | `mlx-community/Qwen3-8B-4bit` — M5 |
-| ASR | Whisper large-v3 (MLX) + `vasista22/whisper-tamil-medium` — M6 |
-| UI | Streamlit — M7 |
+| Planner | `mlx-community/Qwen3-8B-4bit` via `mlx-lm` |
+| ASR | `mlx-community/whisper-large-v3-mlx` + `vasista22/whisper-tamil-medium` |
+| Episodes | LeRobot-compatible parquet (pyarrow, not the `lerobot` package) |
+| UI | Streamlit |
 
 ## Model selection
 
@@ -193,6 +262,18 @@ tests/test_smoke.py smoke suite
 roughly 13 GB — it cannot co-reside with the detector and both ASR models on a
 16 GB machine. `Qwen3-8B-4bit` (~4.7 GB) was chosen instead so the full stack
 stays under ~8 GB resident. This is a hardware constraint, not a quality claim.
+
+## Limitations
+
+- Simulation only. Nothing here has been run on hardware and no sim-to-real
+  transfer is claimed.
+- The M6 audio is synthesised Tamil TTS. Code-switched Tanglish is the case both
+  ASR models handle worst and it has not been tested against a real speaker.
+- 8 utterances over 4 objects is a smoke test, not an evaluation. There is no
+  held-out set, no ablation of the ASR router, and no human baseline.
+- Grasping is top-down only, on cubes sized for the gripper.
+- `sarvam-m` would very likely plan Tamil better; it was excluded on memory
+  grounds alone (see above), not measured against.
 
 ## License
 

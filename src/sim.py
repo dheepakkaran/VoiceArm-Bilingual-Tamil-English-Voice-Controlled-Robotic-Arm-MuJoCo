@@ -8,6 +8,7 @@ before compiling, which keeps the vendored asset untouched.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import mujoco
 import numpy as np
@@ -52,8 +53,14 @@ class SimEnv:
         self.model = build_model()
         self.data = mujoco.MjData(self.model)
         self._qadr = self._arm_qpos_adr()
-        self._renderer: mujoco.Renderer | None = None
-        self._depth_renderer: mujoco.Renderer | None = None
+        # A MuJoCo Renderer owns an OpenGL context bound to the thread that
+        # created it. Streamlit reruns the script on a different ScriptRunner
+        # thread each time, and on macOS both reusing a context across threads
+        # and creating a second one from another thread deadlock rather than
+        # raise. All rendering is therefore funnelled through one worker thread
+        # that owns every context; callers block on the result.
+        self._renderers: dict[bool, mujoco.Renderer] = {}
+        self._gl: ThreadPoolExecutor | None = None
         self._render_enabled = render
         self._rec_frames: list[np.ndarray] = []
         self._rec_every = 0
@@ -147,32 +154,39 @@ class SimEnv:
             self.step(steps_per_wp)
 
     # -- rendering -----------------------------------------------------------
-    def _get_renderer(self, depth: bool) -> mujoco.Renderer:
-        if depth:
-            if self._depth_renderer is None:
-                self._depth_renderer = mujoco.Renderer(
-                    self.model, height=config.RENDER_H, width=config.RENDER_W
-                )
-                self._depth_renderer.enable_depth_rendering()
-            return self._depth_renderer
-        if self._renderer is None:
-            self._renderer = mujoco.Renderer(
-                self.model, height=config.RENDER_H, width=config.RENDER_W
-            )
-        return self._renderer
+    def _gl_pool(self) -> ThreadPoolExecutor:
+        if self._gl is None:
+            self._gl = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mujoco-gl")
+        return self._gl
+
+    def _render_on_worker(self, camera: str, depth: bool) -> np.ndarray:
+        """Runs only on the GL worker thread."""
+        r = self._renderers.get(depth)
+        if r is None:
+            r = mujoco.Renderer(self.model, height=config.RENDER_H, width=config.RENDER_W)
+            if depth:
+                r.enable_depth_rendering()
+            self._renderers[depth] = r
+        r.update_scene(self.data, camera=camera)
+        return r.render()
 
     def render(self, camera: str = config.TOP_CAM, depth: bool = False) -> np.ndarray:
         if not self._render_enabled:
             raise RuntimeError("SimEnv was constructed with render=False")
-        r = self._get_renderer(depth)
-        r.update_scene(self.data, camera=camera)
-        return r.render()
+        return self._gl_pool().submit(self._render_on_worker, camera, depth).result()
 
     def close(self) -> None:
-        for r in (self._renderer, self._depth_renderer):
-            if r is not None:
-                r.close()
-        self._renderer = self._depth_renderer = None
+        """Tear down the GL contexts on the thread that owns them."""
+        if self._gl is None:
+            return
+
+        def _close() -> None:
+            while self._renderers:
+                self._renderers.popitem()[1].close()
+
+        self._gl.submit(_close).result()
+        self._gl.shutdown(wait=True)
+        self._gl = None
 
 
 if __name__ == "__main__":

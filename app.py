@@ -36,15 +36,9 @@ env = get_env()
 st.title("VoiceArm")
 st.caption("Code-switched speech grounding for open-vocabulary robotic manipulation")
 
-# --- metrics ----------------------------------------------------------------
-s = episodes.summary()
-cols = st.columns(6)
-cols[0].metric("Episodes", s["episodes"])
-cols[1].metric("Success rate", f"{s['success_rate'] * 100:.0f}%")
-cols[2].metric("Mean detect error", f"{s['mean_detect_error_cm']:.1f} cm")
-cols[3].metric("Mean duration", f"{s['mean_duration_s']:.1f} s")
-cols[4].metric("Mean LLM latency", f"{s['mean_llm_latency_s']:.2f} s")
-cols[5].metric("Tamil ASR won", f"{s['tamil_specialist_share'] * 100:.0f}%")
+# Metrics live at the top but are filled in at the end of the script, so a
+# command executed during this run is already counted.
+metrics_slot = st.container()
 
 st.divider()
 left, right = st.columns([1, 1])
@@ -56,10 +50,10 @@ with left:
                          placeholder="sivappu block-ah bowl-la vai")
 
     c1, c2 = st.columns(2)
-    run = c1.button("Execute", type="primary", use_container_width=True)
+    run = c1.button("Execute", type="primary", width='stretch')
 
     has_speech = speech_available()
-    mic = c2.button("Record 5s", disabled=not has_speech, use_container_width=True)
+    mic = c2.button("Record 5s", disabled=not has_speech, width='stretch')
     if not has_speech:
         st.caption("Speech backend unavailable — install `mlx-whisper` and "
                    "`sounddevice` to enable the microphone. Text input still works.")
@@ -76,7 +70,7 @@ with left:
         st.dataframe(pd.DataFrame([
             {"model": k, "transcript": v, "chosen": k == tr.source}
             for k, v in tr.candidates.items()
-        ]), hide_index=True, use_container_width=True)
+        ]), hide_index=True, width='stretch')
         st.write(f"**Cleaned** — {text}")
 
     if (run or mic) and text:
@@ -91,12 +85,29 @@ with right:
     if ep is None:
         st.info("No command run yet.")
     else:
-        st.success("Success") if ep.success else st.error("Failed")
+        if ep.success:
+            st.success("Success")
+        else:
+            st.error("Failed")
+
         st.write("**Plan**")
         st.json(json.loads(ep.plan_json))
-        st.write(f"plan source `{ep.plan_source}` · "
-                 f"detection error `{ep.detect_error_m * 100:.1f} cm`" if
-                 not np.isnan(ep.detect_error_m) else f"plan source `{ep.plan_source}`")
+
+        detail = f"plan source `{ep.plan_source}`"
+        if not np.isnan(ep.detect_error_m):
+            detail += f" · detection error `{ep.detect_error_m * 100:.1f} cm`"
+        detail += f" · `{ep.duration_s:.1f} s`"
+        st.write(detail)
+
+with metrics_slot:
+    s = episodes.summary()
+    cols = st.columns(6)
+    cols[0].metric("Episodes", s["episodes"])
+    cols[1].metric("Success rate", f"{s['success_rate'] * 100:.0f}%")
+    cols[2].metric("Mean detect error", f"{s['mean_detect_error_cm']:.1f} cm")
+    cols[3].metric("Mean duration", f"{s['mean_duration_s']:.1f} s")
+    cols[4].metric("Mean LLM latency", f"{s['mean_llm_latency_s']:.2f} s")
+    cols[5].metric("Tamil ASR won", f"{s['tamil_specialist_share'] * 100:.0f}%")
 
 st.divider()
 st.subheader("Scene")
@@ -123,5 +134,5 @@ else:
         view[["episode_id", "raw_utterance", "cleaned_utterance", "asr_source",
               "plan_source", "target_object", "detect_error_m", "success",
               "duration_s", "llm_latency_s"]].iloc[::-1],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width='stretch',
     )

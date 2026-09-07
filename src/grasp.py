@@ -19,11 +19,19 @@ log = logging.getLogger(__name__)
 
 GRASP_Z_OFFSET = -0.005   # TCP sits slightly below the block centre
 LIFT_HEIGHT = 0.14
+PLACE_APPROACH = 0.10     # lower than LIFT_HEIGHT: the container sits near the
+                          # edge of the top-down workspace and a 0.14 m approach
+                          # puts the waypoint outside it
 RELEASE_HEIGHT = 0.06     # above the container rim before opening
 # Approach and lift waypoints only need to be roughly right; the grasp waypoint
 # is the one that has to be accurate. Near the edge of the workspace the 2 mm
 # grasp tolerance is unreachable for transit poses, so they get their own.
 TRANSIT_TOL = 0.006
+# Transit poses only have to be roughly right. Rather than aborting when the
+# solver stalls a few millimetres short near the workspace edge -- which is
+# exactly where perception noise puts a container target -- accept anything
+# within this bound and only fail beyond it.
+TRANSIT_ACCEPT = 0.02
 SETTLE_AFTER_CLOSE = 400
 SETTLE_AFTER_OPEN = 200
 
@@ -41,7 +49,11 @@ def _move_to(env: SimEnv, pos: np.ndarray, steps_per_wp: int = 6,
     q, err, converged = ik(env.model, scratch, pos, target_mat=GRASP_DOWN_MAT,
                            q_init=q_now, tol=tol)
     if not converged:
-        raise MotionFailure(f"unreachable top-down: {np.round(pos, 3)} (err {err * 1000:.1f} mm)")
+        if tol >= TRANSIT_TOL and err < TRANSIT_ACCEPT:
+            log.debug("transit waypoint %s accepted at %.1f mm", np.round(pos, 3), err * 1000)
+        else:
+            raise MotionFailure(
+                f"unreachable top-down: {np.round(pos, 3)} (err {err * 1000:.1f} mm)")
     env.follow(np.asarray([q]) if waypoints <= 1 else _path(q_now, q, waypoints), steps_per_wp)
 
 
@@ -79,7 +91,7 @@ def pick(env: SimEnv, xyz: np.ndarray, body: str | None = None) -> bool:
 def place(env: SimEnv, xyz: np.ndarray) -> None:
     """Release whatever is held above `xyz`."""
     xyz = np.asarray(xyz, dtype=float)
-    above = xyz + np.array([0.0, 0.0, LIFT_HEIGHT])
+    above = xyz + np.array([0.0, 0.0, PLACE_APPROACH])
     release = xyz + np.array([0.0, 0.0, RELEASE_HEIGHT])
 
     _move_to(env, above)
