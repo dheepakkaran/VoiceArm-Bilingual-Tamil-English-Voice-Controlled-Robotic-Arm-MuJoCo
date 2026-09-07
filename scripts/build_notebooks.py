@@ -91,8 +91,9 @@ camera image, and an IK controller executes the pick-and-place in MuJoCo.
 Source: [GitHub]({GH})
 
 **Before you run:** turn on the GPU.
-* Kaggle — Settings, Accelerator, `GPU T4 x2`, and switch **Internet** on
-  (needs a phone-verified account, or the model downloads fail)
+* Kaggle — Settings, Accelerator, **`GPU T4 x2`** (the default P100 is sm_60 and
+  this stack needs sm_75+), and switch **Internet** on (needs a phone-verified
+  account, or the model downloads fail)
 * Colab — Runtime, Change runtime type, `T4 GPU`
 
 Simulation only. No sim-to-real transfer is claimed.
@@ -261,8 +262,11 @@ Tanglish and Tamil script.
 No MuJoCo here -- the planner is a pure text-in, JSON-out stage, so this needs
 nothing but transformers.
 
-**Accelerator:** GPU. `T4 x2` (32 GB) is comfortable; a single 16 GB P100 works
-but offloads a few layers to CPU and runs slower.
+**Accelerator: `GPU T4 x2`, not the default.** Settings -> Accelerator -> `GPU
+T4 x2`. Kaggle's default GPU is a Tesla P100, which is sm_60 -- the installed
+PyTorch supports sm_70 and up, and bitsandbytes 4-bit needs sm_75, so a P100 run
+fails inside a CUDA kernel rather than merely running slowly. The Kaggle API has
+no field for the accelerator type, so this switch has to be made here in the UI.
 """),
 code("""
 import torch
