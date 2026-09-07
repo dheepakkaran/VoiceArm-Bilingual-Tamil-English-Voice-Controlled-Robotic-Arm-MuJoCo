@@ -10,6 +10,8 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 
 > Simulation only. No sim-to-real transfer is claimed.
 
+![scene](docs/scene.png)
+
 ## Status
 
 | Milestone | Scope | State |
@@ -17,8 +19,8 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 | **M0** | Environment, dependencies, Panda assets | ✅ done |
 | **M1** | Scene, arm actuation, offscreen rendering | ✅ done |
 | **M2** | Forward + inverse kinematics | ✅ done |
-| M3 | Grasp primitives (pick & place) | ⬜ next |
-| M4 | Open-vocabulary perception (OWL-ViT + depth) | ⬜ |
+| **M3** | Grasp primitives (pick & place) | ✅ done |
+| M4 | Open-vocabulary perception (OWL-ViT + depth) | ⬜ next |
 | M5 | Local LLM task planner | ⬜ |
 | M6 | Dual-ASR Tamil/English speech router | ⬜ |
 | M7 | Episode logging + Streamlit dashboard | ⬜ |
@@ -59,7 +61,19 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 | Max position error | 1.79 mm |
 | Mean solve time | **0.1 ms** |
 
-Reproduce with `./run.sh m1` and `./run.sh m2`.
+**M3 — pick and place**, each block grasped from its ground-truth pose and
+dropped in the container:
+
+![pick and place](docs/m3_pickplace.png)
+
+| Metric | Value |
+|---|---|
+| Blocks placed in the container | **3 / 3** |
+| Lift height on grasp | 0.146 m (all three) |
+| Mean final offset from container centre | **1.7 mm** |
+| Grasp strategy | friction only — no weld constraint needed |
+
+Reproduce with `./run.sh m1`, `./run.sh m2`, and `./run.sh m3`.
 
 ## Setup
 
@@ -77,6 +91,7 @@ cloning the full repository.
 ```bash
 ./run.sh m1      # three-pose actuation demo, writes out/m1_frames.png
 ./run.sh m2      # IK accuracy table over 10 random targets
+./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
 ./run.sh test    # pytest smoke suite
 ```
 
@@ -87,6 +102,17 @@ Panda model has no end-effector site, and MJCF `<include>` cannot add children
 to a body defined inside the included file. `src/sim.py` loads the scene as a
 spec, adds a `grasp_site` at the Panda TCP (0.1034 m along `+z` of the `hand`
 frame) plus a wrist camera, then compiles. The vendored asset stays untouched.
+
+**Grasping needed 6-DoF IK, not position-only.** The Panda's fingers slide along
+the hand frame's *y* axis, so a top-down grasp has to constrain orientation as
+well as position. `ik()` stacks the positional and rotational site Jacobians and
+solves both together; `GRASP_DOWN_MAT` points the site *z* axis at the table and
+aligns the finger-separation axis with world *y*.
+
+**Transit waypoints use a looser tolerance than the grasp.** Near the edge of the
+workspace the 2 mm grasp tolerance is unreachable for approach and lift poses,
+which made `place()` fail on a target that was in fact fine to reach. Approach
+and lift now solve to 6 mm; only the grasp waypoint holds 2 mm.
 
 **IK is damped least squares on the site Jacobian.** `mink` is used when it is
 installed; the built-in solver is the default path and is what the numbers above
@@ -108,7 +134,8 @@ to no new contacts, giving perception an unoccluded view.
 ```
 src/config.py       paths, model ids, tuning constants
 src/sim.py          SimEnv — model build, actuation, rendering
-src/kinematics.py   FK, damped-least-squares IK, joint-space interpolation
+src/kinematics.py   FK, damped-least-squares IK (3- and 6-DoF), interpolation
+src/grasp.py        top-down pick / place primitives from Cartesian waypoints
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
 tests/test_smoke.py smoke suite

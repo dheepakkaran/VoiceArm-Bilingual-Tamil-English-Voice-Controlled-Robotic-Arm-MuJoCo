@@ -55,6 +55,10 @@ class SimEnv:
         self._renderer: mujoco.Renderer | None = None
         self._depth_renderer: mujoco.Renderer | None = None
         self._render_enabled = render
+        self._rec_frames: list[np.ndarray] = []
+        self._rec_every = 0
+        self._rec_cam = config.SCENE_CAM
+        self._rec_tick = 0
         self.reset()
 
     # -- setup ---------------------------------------------------------------
@@ -116,9 +120,21 @@ class SimEnv:
         return {n: self.body_pos(n) for n in names}
 
     # -- stepping ------------------------------------------------------------
+    def start_recording(self, camera: str = config.SCENE_CAM, every: int = 25) -> None:
+        """Capture a frame every `every` physics steps until `stop_recording`."""
+        self._rec_frames, self._rec_every, self._rec_cam, self._rec_tick = [], every, camera, 0
+
+    def stop_recording(self) -> list[np.ndarray]:
+        frames, self._rec_frames, self._rec_every = self._rec_frames, [], 0
+        return frames
+
     def step(self, n: int = 1) -> None:
         for _ in range(n):
             mujoco.mj_step(self.model, self.data)
+            if self._rec_every:
+                self._rec_tick += 1
+                if self._rec_tick % self._rec_every == 0:
+                    self._rec_frames.append(self.render(self._rec_cam))
 
     def settle(self, n: int = 100) -> None:
         """Step without changing the command, letting the controller converge."""

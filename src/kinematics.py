@@ -15,6 +15,8 @@ from . import config
 
 log = logging.getLogger(__name__)
 
+ROT_TOL = 0.05  # rad, orientation convergence for 6-DoF solves
+
 try:  # optional
     import mink  # type: ignore
 
@@ -63,6 +65,32 @@ def joint_limits(model: mujoco.MjModel) -> tuple[np.ndarray, np.ndarray]:
     return np.array(lo), np.array(hi)
 
 
+# Top-down grasp orientation for the `grasp_site` frame, as column vectors:
+# site z points straight down, site y (the finger-separation axis) lies along
+# world +y, so the fingers close on the block's +/-y faces.
+GRASP_DOWN_MAT = np.array([[-1.0, 0.0, 0.0],
+                           [0.0, 1.0, 0.0],
+                           [0.0, 0.0, -1.0]])
+
+
+def mat_to_quat(mat: np.ndarray) -> np.ndarray:
+    q = np.zeros(4)
+    mujoco.mju_mat2Quat(q, np.asarray(mat, dtype=float).reshape(9))
+    return q
+
+
+def orientation_error(quat_target: np.ndarray, mat_current: np.ndarray) -> np.ndarray:
+    """Rotation vector taking `mat_current` onto `quat_target` (world frame)."""
+    q_cur = mat_to_quat(mat_current)
+    q_inv = np.zeros(4)
+    mujoco.mju_negQuat(q_inv, q_cur)
+    q_err = np.zeros(4)
+    mujoco.mju_mulQuat(q_err, quat_target, q_inv)
+    vel = np.zeros(3)
+    mujoco.mju_quat2Vel(vel, q_err, 1.0)
+    return vel
+
+
 def fk(
     model: mujoco.MjModel,
     data: mujoco.MjData,
@@ -78,15 +106,18 @@ def ik(
     model: mujoco.MjModel,
     data: mujoco.MjData,
     target_pos: np.ndarray,
+    target_mat: np.ndarray | None = None,
     site_name: str = config.GRIPPER_SITE,
     q_init: np.ndarray | None = None,
     iters: int = config.IK_MAX_ITERS,
     tol: float = config.IK_POS_TOL,
     damping: float = config.IK_DAMPING,
+    rot_weight: float = 0.5,
 ) -> tuple[np.ndarray, float, bool]:
-    """Solve position-only IK.
+    """Solve IK for the gripper site.
 
-    Returns (q_arm, final_error_m, converged). `data` is left holding the
+    Position-only when `target_mat` is None, otherwise full 6-DoF. Returns
+    (q_arm, final_position_error_m, converged). `data` is left holding the
     solution so callers can read FK straight away.
     """
     target_pos = np.asarray(target_pos, dtype=float)
@@ -95,24 +126,39 @@ def ik(
     lo, hi = joint_limits(model)
     sid = site_id(model, site_name)
 
+    use_rot = target_mat is not None
+    quat_target = mat_to_quat(target_mat) if use_rot else None
+
     if q_init is not None:
         data.qpos[qadr] = np.clip(q_init, lo, hi)
     mujoco.mj_forward(model, data)
 
     jacp = np.zeros((3, model.nv))
-    err = np.inf
+    jacr = np.zeros((3, model.nv))
+    pos_err = np.inf
 
     for _ in range(iters):
-        err_vec = target_pos - data.site_xpos[sid]
-        err = float(np.linalg.norm(err_vec))
-        if err < tol:
-            return data.qpos[qadr].copy(), err, True
+        e_pos = target_pos - data.site_xpos[sid]
+        pos_err = float(np.linalg.norm(e_pos))
 
-        mujoco.mj_jacSite(model, data, jacp, None, sid)
-        J = jacp[:, vadr]                                   # 3 x 7
+        if use_rot:
+            e_rot = orientation_error(quat_target, data.site_xmat[sid].reshape(3, 3))
+            rot_err = float(np.linalg.norm(e_rot))
+            err_vec = np.concatenate([e_pos, rot_weight * e_rot])
+            done = pos_err < tol and rot_err < ROT_TOL
+        else:
+            err_vec = e_pos
+            rot_err = 0.0
+            done = pos_err < tol
+
+        if done:
+            return data.qpos[qadr].copy(), pos_err, True
+
+        mujoco.mj_jacSite(model, data, jacp, jacr if use_rot else None, sid)
+        J = np.vstack([jacp[:, vadr], rot_weight * jacr[:, vadr]]) if use_rot else jacp[:, vadr]
 
         # damped least squares: dq = J^T (J J^T + lambda^2 I)^-1 e
-        JJt = J @ J.T + (damping ** 2) * np.eye(3)
+        JJt = J @ J.T + (damping ** 2) * np.eye(J.shape[0])
         dq = J.T @ np.linalg.solve(JJt, err_vec)
 
         norm = np.linalg.norm(dq)
@@ -122,7 +168,7 @@ def ik(
         data.qpos[qadr] = np.clip(data.qpos[qadr] + dq, lo, hi)
         mujoco.mj_forward(model, data)
 
-    return data.qpos[qadr].copy(), err, err < tol
+    return data.qpos[qadr].copy(), pos_err, False
 
 
 def interpolate(q_from: np.ndarray, q_to: np.ndarray, steps: int) -> np.ndarray:

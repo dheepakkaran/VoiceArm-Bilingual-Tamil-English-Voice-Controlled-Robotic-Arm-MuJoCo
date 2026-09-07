@@ -11,7 +11,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import config
-from src.kinematics import fk, ik, interpolate
+from src.grasp import pick_and_place
+from src.kinematics import GRASP_DOWN_MAT, fk, ik, interpolate, orientation_error, mat_to_quat
 from src.sim import PARK_ARM, SimEnv
 
 
@@ -52,6 +53,33 @@ def test_ik_converges(env: SimEnv) -> None:
     env.teleport_joints(q)
     achieved, _ = fk(env.model, env.data, config.GRIPPER_SITE)
     assert np.linalg.norm(achieved - target) < config.IK_POS_TOL * 2.5
+
+
+def test_ik_holds_grasp_orientation(env: SimEnv) -> None:
+    env.reset()
+    scratch = mujoco.MjData(env.model)
+    target = np.array([0.45, 0.05, 0.50])
+    q, _, converged = ik(env.model, scratch, target, target_mat=GRASP_DOWN_MAT,
+                         q_init=env.get_joints())
+    assert converged
+
+    env.teleport_joints(q)
+    _, R = fk(env.model, env.data, config.GRIPPER_SITE)
+    rot_err = np.linalg.norm(orientation_error(mat_to_quat(GRASP_DOWN_MAT), R))
+    assert rot_err < 0.05, f"gripper is {rot_err:.3f} rad off vertical"
+    assert R[2, 2] < -0.99, "gripper z axis is not pointing down"
+
+
+def test_pick_and_place_into_container(env: SimEnv) -> None:
+    env.reset()
+    bowl = env.body_pos(config.CONTAINER)
+    src = env.body_pos("red_block")
+    grasped = pick_and_place(env, src, np.array([bowl[0], bowl[1], 0.46]), body="red_block")
+    assert grasped, "block was never lifted"
+
+    final = env.body_pos("red_block")
+    assert np.linalg.norm(final[:2] - bowl[:2]) < 0.075
+    assert final[2] > 0.40
 
 
 def test_interpolate_endpoints() -> None:

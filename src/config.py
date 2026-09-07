@@ -20,6 +20,7 @@ for _d in (OUT, EPISODES):
 GRIPPER_SITE = "grasp_site"
 TOP_CAM = "topcam"
 WRIST_CAM = "wristcam"
+SCENE_CAM = "scenecam"
 RENDER_W, RENDER_H = 640, 480
 
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
