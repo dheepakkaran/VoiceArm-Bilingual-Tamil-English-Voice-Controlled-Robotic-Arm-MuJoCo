@@ -42,6 +42,8 @@ def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
             frame_every: int = 25) -> episodes.Episode:
     """Run one instruction end to end and return the recorded episode."""
     t0 = time.perf_counter()
+    if not utterance.strip():
+        raise ValueError("empty utterance -- refusing to plan from nothing")
     ep = episodes.Episode(raw_utterance=utterance,
                           cleaned_utterance=cleaned or utterance)
 

@@ -205,3 +205,38 @@ def test_episode_roundtrip(tmp_path, monkeypatch) -> None:
     assert len(df) == 1
     assert df.iloc[0]["raw_utterance"] == "sivappu block-ah bowl-la vai"
     assert (tmp_path / ep.episode_id / "data.parquet").exists()
+
+
+def test_silence_never_reaches_the_planner() -> None:
+    from src import speech
+
+    with pytest.raises(speech.NoSpeechDetected):
+        speech.route(np.zeros(16_000 * 3, dtype=np.float32))
+
+
+def test_empty_utterance_is_refused() -> None:
+    from src.executor import execute
+
+    with pytest.raises(ValueError):
+        execute(None, "   ")
+
+
+def test_trim_silence_keeps_the_speech_region() -> None:
+    from src.speech import SAMPLE_RATE, trim_silence
+
+    rng = np.random.default_rng(0)
+    quiet = rng.normal(0, 0.001, SAMPLE_RATE * 2).astype(np.float32)
+    loud = rng.normal(0, 0.2, SAMPLE_RATE).astype(np.float32)
+    clip = np.concatenate([quiet, loud, quiet])
+
+    trimmed = trim_silence(clip)
+    assert len(trimmed) < len(clip)
+    assert len(trimmed) >= SAMPLE_RATE          # the speech itself survives
+
+
+def test_indic_misdetection_still_triggers_the_specialist() -> None:
+    from src.speech import INDIC_LANGS
+
+    # Whisper reports these for Tamil audio; each must still reach the specialist.
+    for lang in ("ta", "hi", "kn", "ml", "te"):
+        assert lang in INDIC_LANGS

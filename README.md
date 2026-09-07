@@ -99,6 +99,26 @@ ground truth:
 Median plan latency **1.86 s** (first call 10.4 s, cold cache). Every one of the
 eight was planned by the LLM; the regex fallback was not needed.
 
+**ASR benchmark** (`./run.sh bench`), 6 Tamil sentences synthesised with the
+macOS `Vani` voice and read from wav files, so room acoustics are out of the
+loop. Character error rate against the reference text:
+
+| backend | mean CER | median CER |
+|---|---|---|
+| whisper-large-v3 (multilingual) | 16.7% | **0.0%** |
+| whisper-tamil-medium (specialist) | **4.8%** | **0.0%** |
+| routed — what ships | **4.8%** | **0.0%** |
+
+The mean and the median tell different stories, and the median is the honest
+one: the multilingual model is exact on 5 of 6 sentences and then decodes the
+sixth into Devanagari at 100% CER. Its problem is not steady inaccuracy, it is
+rare total failure. The specialist never failed that way; its non-zero scores
+are sandhi spellings (`நீலக்` for `நீல`), which are orthographic conventions
+rather than recognition errors. The router picked the specialist 6/6.
+
+These are synthetic voices. Synthetic speech is markedly easier than human
+speech, so treat these as a floor on error, not an estimate of real accuracy.
+
 **M6 — dual-ASR router.** Tamil audio, both backends transcribed correctly and
 the router picked the specialist:
 

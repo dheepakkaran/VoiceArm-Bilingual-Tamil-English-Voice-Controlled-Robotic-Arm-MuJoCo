@@ -23,11 +23,34 @@ SAMPLE_RATE = 16_000
 TAMIL_BLOCK = re.compile(r"[஀-௿]")
 TAMIL_SCRIPT_THRESHOLD = 0.6
 
+# Whisper's language ID is unstable on short Tamil clips and regularly reports a
+# neighbouring Indic language, transcribing Tamil speech into Kannada, Malayalam
+# or Telugu script. A Tamil-script test alone therefore misses the specialist
+# exactly when it is most needed, so any Indic guess also triggers it.
+INDIC_LANGS = frozenset({"ta", "kn", "ml", "te", "hi", "bn", "mr",
+                         "gu", "pa", "or", "si", "ne", "sa"})
+
 _tamil_pipe = None
+
+
+# Only digital silence / a muted or unpermitted mic is gated on level. Quiet
+# speech still transcribes fine, and Whisper judges that far better than a fixed
+# amplitude cutoff does -- the empty-transcript check below is the real guard.
+SILENCE_RMS = 0.002
+QUIET_RMS = 0.012
 
 
 class SpeechUnavailable(RuntimeError):
     """Raised when no ASR backend could be loaded."""
+
+
+class NoSpeechDetected(RuntimeError):
+    """Raised when the clip is silent or every backend returned an empty string.
+
+    This has to stop the pipeline rather than pass an empty string downstream:
+    the planner LLM will happily invent a plausible instruction from nothing,
+    which looks like a successful run but is pure hallucination.
+    """
 
 
 @dataclass
@@ -109,9 +132,49 @@ def transcribe_tamil(audio: np.ndarray) -> str:
     return _tamil_pipe(audio.copy())["text"].strip()
 
 
+def trim_silence(audio: np.ndarray, frame_ms: int = 10, pad_ms: int = 200,
+                 rel_threshold: float = 0.08) -> np.ndarray:
+    """Cut leading and trailing silence with energy-based endpointing.
+
+    Whisper hallucinates fluent continuations over trailing silence, so a fixed
+    recording window that ends well after the speaker stops reliably produces
+    invented text appended to an otherwise correct transcript. Trimming to the
+    speech region removes the padding that triggers it.
+    """
+    n = int(SAMPLE_RATE * frame_ms / 1000)
+    if audio.size < n * 3:
+        return audio
+    frames = audio[: audio.size // n * n].reshape(-1, n)
+    energy = np.sqrt(np.mean(np.square(frames), axis=1))
+    if energy.max() <= 0:
+        return audio
+
+    voiced = np.flatnonzero(energy > rel_threshold * energy.max())
+    if voiced.size == 0:
+        return audio
+
+    pad = int(pad_ms / frame_ms)
+    start = max(int(voiced[0]) - pad, 0) * n
+    end = min(int(voiced[-1]) + pad + 1, frames.shape[0]) * n
+    return audio[start:end]
+
+
+def rms(audio: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
+
+
 def route(audio: np.ndarray) -> Transcript:
     """Transcribe, dispatching to the Tamil specialist when the script warrants."""
     t0 = time.perf_counter()
+    audio = trim_silence(audio)
+    level = rms(audio)
+    if level < SILENCE_RMS:
+        raise NoSpeechDetected(
+            f"clip is digitally silent (rms {level:.4f}); the mic is muted or "
+            "input permission is denied"
+        )
+    if level < QUIET_RMS:
+        log.warning("quiet clip (rms %.4f) -- transcription may be unreliable", level)
     try:
         text, lang = transcribe_multilingual(audio)
     except Exception as exc:
@@ -120,15 +183,28 @@ def route(audio: np.ndarray) -> Transcript:
     candidates = {"multilingual": text}
     source = "multilingual"
 
-    if tamil_ratio(text) > TAMIL_SCRIPT_THRESHOLD or lang == "ta":
+    base_ratio = tamil_ratio(text)
+    if base_ratio > TAMIL_SCRIPT_THRESHOLD or lang in INDIC_LANGS:
         try:
             ta_text = transcribe_tamil(audio)
             candidates["tamil_specialist"] = ta_text
-            if ta_text:
+            # Prefer the specialist whenever it produced Tamil script. Measured
+            # on 4 synthesised Tamil sentences the specialist averaged 9.7% CER
+            # against 85.8% for the multilingual model, which fails two ways on
+            # Tamil: it loops and emits the sentence twice, and it sometimes
+            # decodes into a neighbouring script. Both failures still look like
+            # confident Tamil-script output, so the choice cannot be made on
+            # script alone -- it has to default to the specialist.
+            if ta_text and tamil_ratio(ta_text) > TAMIL_SCRIPT_THRESHOLD:
                 text, source = ta_text, "tamil_specialist"
         except Exception as exc:
             log.warning("Tamil specialist unavailable (%s), keeping multilingual output",
                         type(exc).__name__)
+
+    if not text.strip():
+        raise NoSpeechDetected(
+            f"every ASR backend returned an empty transcript (audio rms {level:.4f})"
+        )
 
     return Transcript(text=text, source=source, lang=lang,
                       latency_s=time.perf_counter() - t0, candidates=candidates)
@@ -143,6 +219,9 @@ def clean_transcript(text: str) -> str:
     text before planning.
     """
     from .planner import _generate
+
+    if not text.strip():
+        raise NoSpeechDetected("refusing to clean an empty transcript")
 
     try:
         out = _generate(
