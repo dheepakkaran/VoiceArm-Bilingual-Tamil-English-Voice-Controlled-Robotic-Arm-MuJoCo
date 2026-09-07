@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceArm — Code-Switched Speech Grounding for Robotic Manipulation</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#26303d; --ink:#e6edf3;
+    --dim:#8b949e; --accent:#7ee787; --warn:#f0883e; --link:#79c0ff;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.65 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  .wrap { max-width:920px; margin:0 auto; padding:56px 24px 96px; }
+  h1 { font-size:2.5rem; margin:0 0 .2em; letter-spacing:-.02em; }
+  .sub { font-size:1.18rem; color:var(--dim); margin:0 0 1.6em; font-weight:400; }
+  h2 { font-size:1.35rem; margin:2.6em 0 .7em; padding-bottom:.35em;
+       border-bottom:1px solid var(--line); }
+  h3 { font-size:1.02rem; margin:1.8em 0 .5em; color:var(--ink); }
+  p { color:#c9d1d9; }
+  a { color:var(--link); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  code { background:var(--panel); border:1px solid var(--line); border-radius:5px;
+         padding:.1em .38em; font-size:.87em;
+         font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:9px;
+        padding:16px 18px; overflow-x:auto; font-size:.83rem; line-height:1.55;
+        font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#c9d1d9; }
+  .badges { display:flex; gap:10px; flex-wrap:wrap; margin:1.5em 0 2em; }
+  .badge { display:inline-flex; align-items:center; gap:8px; padding:9px 16px;
+           border:1px solid var(--line); border-radius:8px; background:var(--panel);
+           font-size:.9rem; font-weight:500; color:var(--ink); }
+  .badge:hover { border-color:var(--link); text-decoration:none; }
+  .badge.primary { border-color:#2ea04366; background:#2ea04322; }
+  video, img { width:100%; border-radius:9px; border:1px solid var(--line);
+               display:block; background:#000; }
+  figure { margin:1.4em 0; }
+  figcaption { color:var(--dim); font-size:.86rem; margin-top:.6em; }
+  table { width:100%; border-collapse:collapse; margin:1.1em 0; font-size:.92rem; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:.83rem;
+       text-transform:uppercase; letter-spacing:.04em; }
+  td.n { font-family:ui-monospace,Menlo,monospace; }
+  .good { color:var(--accent); font-weight:600; }
+  .note { background:var(--panel); border:1px solid var(--line);
+          border-left:3px solid var(--warn); border-radius:0 8px 8px 0;
+          padding:14px 18px; margin:1.4em 0; font-size:.93rem; color:#c9d1d9; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:700px){ .grid2{grid-template-columns:1fr} h1{font-size:1.9rem} }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line);
+         border-radius:20px; padding:3px 11px; font-size:.78rem; color:var(--dim);
+         margin:0 6px 6px 0; }
+  footer { margin-top:4em; padding-top:1.6em; border-top:1px solid var(--line);
+           color:var(--dim); font-size:.88rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>VoiceArm</h1>
+  <p class="sub">Code-switched speech grounding for open-vocabulary robotic manipulation</p>
+
+  <p>Speak or type an instruction in <strong>Tamil, English, or Tanglish</strong>
+  (Tamil written in Latin script, mixed with English). A dual-ASR router transcribes
+  it, a local 4B language model turns it into a JSON task plan, an open-vocabulary
+  detector grounds the named object in 3D, and an inverse-kinematics controller
+  executes the pick-and-place in MuJoCo. Everything runs locally — no cloud API
+  anywhere in the pipeline.</p>
+
+  <div class="badges">
+    <a class="badge primary" href="https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb">▶ Run it live on Colab</a>
+    <a class="badge" href="https://kaggle.com/kernels/welcome?src=https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb">Run on Kaggle</a>
+    <a class="badge" href="https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo">Source on GitHub</a>
+  </div>
+
+  <div class="note">
+    <strong>Why this page is static.</strong> A live Gradio Space needs a paid tier,
+    and a free GPU session gives a share link that dies with the session. So the
+    permanent link is this page, and the live pipeline runs on Colab or Kaggle's
+    free GPU when you click above. The Gradio app is written and tested — it is in
+    <code>hf_space/</code> and one push away if the hosting changes.
+  </div>
+
+  <h2>Watch it run</h2>
+  <div class="grid2">
+    <figure>
+      <video src="media/voice_episode.mp4" controls muted loop playsinline></video>
+      <figcaption><strong>"sivappu block-ah bowl-la vai"</strong> — Tanglish, spoken.
+      Router chose the Tamil specialist, plan came from the LLM, detection error 0.5 cm.</figcaption>
+    </figure>
+    <figure>
+      <video src="media/m3_pickplace.mp4" controls muted loop playsinline></video>
+      <figcaption>Approach, grasp, lift, transport, release, retreat. Friction grasp —
+      no weld constraint needed.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Pipeline</h2>
+<pre>  microphone ─► whisper-large-v3 ─────┐
+                                      ├─► script + language router ─► transcript
+              whisper-tamil-medium ───┘                                   │
+                                                                          ▼
+                                                          Qwen3-4B planner (local)
+                                                                          │  JSON plan
+                                                                          ▼
+   overhead RGB-D ─► OWLv2 open-vocab ─► 3D grounding ─► damped-least-squares IK
+                                                                          │
+                                                                          ▼
+                                                     MuJoCo execution ─► episode log</pre>
+
+  <p>The <code>target</code> field the planner emits is free text — <code>"a red
+  cube"</code> — and goes straight to the detector as a query. There is no fixed
+  object vocabulary anywhere in the system.</p>
+
+  <h2>Results</h2>
+
+  <h3>Speech recognition</h3>
+  <p>Character error rate on six Tamil sentences, read from wav files so room
+  acoustics are out of the loop.</p>
+  <table>
+    <tr><th>backend</th><th>mean CER</th><th>median CER</th></tr>
+    <tr><td>whisper-large-v3 (multilingual)</td><td class="n">16.7%</td><td class="n">0.0%</td></tr>
+    <tr><td>whisper-tamil-medium (specialist)</td><td class="n">4.8%</td><td class="n">0.0%</td></tr>
+    <tr><td><strong>routed — what ships</strong></td><td class="n good">4.8%</td><td class="n good">0.0%</td></tr>
+  </table>
+  <p>The median is the honest number. The multilingual model is exact on five of six
+  sentences and then decodes the sixth into Devanagari at 100% CER — its problem is
+  rare total failure, not steady inaccuracy. The specialist never failed that way.
+  Its non-zero scores are sandhi spellings, which are orthographic conventions rather
+  than recognition errors.</p>
+
+  <h3>Manipulation</h3>
+  <table>
+    <tr><th>stage</th><th>metric</th><th>result</th></tr>
+    <tr><td>Joint tracking</td><td>max error over 3 poses</td><td class="n">0.0066 rad</td></tr>
+    <tr><td>Inverse kinematics</td><td>10 random reachable targets</td><td class="n good">10/10 &lt; 5 mm</td></tr>
+    <tr><td></td><td>mean position error</td><td class="n">0.44 mm</td></tr>
+    <tr><td></td><td>mean solve time</td><td class="n">0.1 ms</td></tr>
+    <tr><td>Pick and place</td><td>blocks placed in container</td><td class="n good">3/3</td></tr>
+    <tr><td></td><td>offset from container centre</td><td class="n">1.7 mm</td></tr>
+    <tr><td>Perception</td><td>3D grounding error</td><td class="n">0.5 cm typical</td></tr>
+    <tr><td>End to end</td><td>8 utterances, 3 languages</td><td class="n good">8/8</td></tr>
+    <tr><td></td><td>episodes logged</td><td class="n">39 · 94.9% success</td></tr>
+  </table>
+
+  <h3>Latency</h3>
+  <p>Same command repeated, all four models resident, on a 16 GB M5 laptop.</p>
+  <table>
+    <tr><th>run</th><th>ASR</th><th>plan</th><th>perceive</th><th>total</th></tr>
+    <tr><td>cold</td><td class="n">16.6 s</td><td class="n">4.3 s</td><td class="n">4.0 s</td><td class="n">25.0 s</td></tr>
+    <tr><td>warm</td><td class="n">4.9 s</td><td class="n">1.4 s</td><td class="n">0.9 s</td><td class="n good">7.3 s</td></tr>
+  </table>
+
+  <h2>What broke, and what it taught</h2>
+
+  <h3>Silence was hallucinated into a task</h3>
+  <p>The first real microphone test recorded nothing — the machine's input volume was
+  at 27/100. Whisper correctly returned an empty transcript. The planner then invented
+  a fluent instruction from that empty string, the arm executed it, and the run
+  printed <strong>PASS</strong>. Nothing failed; it succeeded at the wrong thing.
+  Silence and empty transcripts now stop the pipeline, and an amplitude gate catches
+  only true silence — Whisper judges intelligibility better than a threshold does.</p>
+
+  <h3>Whisper's language ID is unstable on short Tamil clips</h3>
+  <p>The same audio came back as <code>ta</code>, <code>hi</code> and <code>kn</code>
+  across repeated runs, transcribing Tamil speech into Devanagari or Kannada script.
+  The router originally dispatched on Tamil script alone, so it skipped the specialist
+  in exactly the cases that needed it. Any Indic language guess now triggers it.</p>
+
+  <h3>Allocator pressure looked like a slow model</h3>
+  <p>Planner latency degraded from 2 s to 35 s as each model loaded, and the loop got
+  slower every iteration. It was not compute — MLX and torch each keep an allocator
+  pool that survives a forward pass, and with four models resident those pools were
+  enough to start paging. One <code>clear_cache()</code> call took a plan from 37.5 s
+  to 1.7 s. Doing it inside the hot path made things worse, so the clears sit at stage
+  boundaries only.</p>
+
+  <h3>The bigger model bought nothing</h3>
+  <p>Qwen3-8B and Qwen3-4B both planned all eight utterances correctly. The 4B is
+  1.8x faster at half the memory, so it ships. <code>sarvam-m</code> (24B) is the
+  strongest open model for Tamil and was rejected purely on footprint — at 4-bit it
+  needs ~13 GB and will not co-reside with the other three models on 16 GB. That is a
+  hardware constraint, not a quality claim, and the Colab notebook has a cell to test
+  it on a 32 GB session.</p>
+
+  <h2>Stack</h2>
+  <p>
+    <span class="tag">MuJoCo 3.12</span><span class="tag">Franka Emika Panda</span>
+    <span class="tag">Damped least squares IK</span><span class="tag">OWLv2</span>
+    <span class="tag">Qwen3-4B</span><span class="tag">Whisper large-v3</span>
+    <span class="tag">whisper-tamil-medium</span><span class="tag">MLX</span>
+    <span class="tag">PyTorch</span><span class="tag">Gradio</span>
+    <span class="tag">Streamlit</span><span class="tag">LeRobot-compatible parquet</span>
+  </p>
+  <p>One codebase runs two backends: MLX on Apple Silicon, transformers on
+  x86 + NVIDIA. <code>src/backend.py</code> selects at import and resolves the model
+  ids; everything above the model-loading layer is shared.</p>
+
+  <h2>Scene and perception</h2>
+  <div class="grid2">
+    <figure>
+      <img src="media/m4_detections.png" alt="OWLv2 detections with bounding boxes">
+      <figcaption>OWLv2 queried with free text — "a red cube", "a white bowl" — then
+      unprojected through the depth buffer.</figcaption>
+    </figure>
+    <figure>
+      <img src="media/m1_frames.png" alt="Three arm poses from the overhead camera">
+      <figcaption>Overhead camera. The arm parks behind its base so perception gets an
+      unoccluded worktop.</figcaption>
+    </figure>
+  </div>
+
+  <footer>
+    <p><strong>Simulation only.</strong> No sim-to-real transfer is claimed. ASR
+    numbers come from synthesised Tamil speech, which is markedly easier than human
+    speech — treat them as a floor on error, not an estimate of real accuracy. Sample
+    sizes are small and stated everywhere they appear.</p>
+    <p>Panda model © Franka Emika, redistributed from <code>mujoco_menagerie</code>
+    under Apache 2.0. Built by
+    <a href="https://github.com/dheepakkaran">Dheepak Karan ES</a> ·
+    <a href="https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo">source</a></p>
+  </footer>
+
+</div>
+</body>
+</html>

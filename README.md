@@ -148,18 +148,32 @@ Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
 ## Live demo
 
-A Gradio front-end for Hugging Face Spaces lives in `hf_space/`. Stage and push
-it with:
+**[huggingface.co/spaces/dheepakkaran/VoiceArm](https://huggingface.co/spaces/dheepakkaran/VoiceArm)** —
+results, benchmarks, and recorded episodes, with buttons that open the live
+pipeline on a free GPU:
+
+| | |
+|---|---|
+| [Run on Colab](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb) | one click, T4, best for a first look |
+| [Run on Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb) | T4 x2 (32 GB), 30 h/week, 12 h sessions |
+
+The notebook clones this repo, installs the portable stack, runs every milestone
+script, and launches the Gradio app with a public share link.
+
+**Why the Space is static.** Hosting a Gradio Space needs an HF PRO
+subscription — a free account gets `402 Payment Required` on create — and a free
+GPU session's share link dies with the session. So the permanent link is a static
+page and the live pipeline runs on borrowed GPU. The Gradio app is written and
+tested either way:
 
 ```bash
-python scripts/deploy_space.py                       # stage into build/space
-python scripts/deploy_space.py --push USER/VoiceArm   # upload (needs an HF token)
+python scripts/deploy_space.py --kind static --push USER/VoiceArm   # free
+python scripts/deploy_space.py --kind gradio --push USER/VoiceArm   # needs PRO
 ```
 
-Then set the Space hardware to **ZeroGPU** in its settings. The deploy script
-stages a self-contained tree rather than pushing this repo, because Gradio
-Spaces need `app.py` at the root and the vendored Panda assets are gitignored
-here.
+Kaggle is also where the `sarvam-m` comparison the local machine could not run
+becomes possible: 32 GB of VRAM is enough for the 24B model that was rejected on
+footprint. `scripts/bench_planner.py` runs it.
 
 ## Running on two backends
 
@@ -307,6 +321,9 @@ src/episodes.py     LeRobot-compatible parquet logging
 src/video.py        mp4 encoding and contact-sheet helpers
 src/backend.py      MLX-or-transformers selection and model id resolution
 hf_space/           Gradio app, requirements, and apt packages for Spaces
+hf_space/static/    the free static showcase page
+notebooks/          Colab and Kaggle notebook for the full pipeline
+scripts/bench_planner.py  planner model comparison on the 8 reference utterances
 app.py              Streamlit dashboard
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
