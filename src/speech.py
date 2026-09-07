@@ -257,21 +257,21 @@ def clean_transcript(text: str) -> str:
     planner LLM is far better at reading Tanglish, so it gets a pass at the raw
     text before planning.
     """
-    from .planner import _generate
+    from .planner import CLEANUP_PROMPT, _generate
 
     if not text.strip():
         raise NoSpeechDetected("refusing to clean an empty transcript")
 
     try:
-        out = _generate(
-            text,
-            "\nThe user text above is a speech transcript, likely code-switched "
-            "Tamil-English from a Tamil speaker, and may contain recognition "
-            "errors. Instead of planning, reply with one corrected English "
-            "sentence stating what the user wants. No JSON, no explanation.",
-        )
+        out = _generate(text, system=CLEANUP_PROMPT)
         cleaned = re.sub(r"<think>.*?</think>", "", out, flags=re.DOTALL).strip()
-        return cleaned.splitlines()[0].strip() if cleaned else text
+        cleaned = cleaned.splitlines()[0].strip().strip('"') if cleaned else ""
+        # A plan leaking through means the wrong prompt won; keep the transcript
+        # rather than logging JSON as the user's words.
+        if not cleaned or cleaned.startswith(("[", "{")):
+            log.warning("transcript cleanup returned %r, keeping raw text", cleaned[:60])
+            return text
+        return cleaned
     except Exception as exc:
         log.warning("transcript cleanup unavailable (%s), using raw text",
                     type(exc).__name__)

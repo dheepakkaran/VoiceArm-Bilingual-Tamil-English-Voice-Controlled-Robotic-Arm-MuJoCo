@@ -240,3 +240,29 @@ def test_indic_misdetection_still_triggers_the_specialist() -> None:
     # Whisper reports these for Tamil audio; each must still reach the specialist.
     for lang in ("ta", "hi", "kn", "ml", "te"):
         assert lang in INDIC_LANGS
+
+
+def test_cleanup_prompt_is_separate_and_grounded() -> None:
+    """The two system prompts must not be merged.
+
+    Appending a "reply with a sentence" nudge to the planner prompt, which
+    demands JSON only, left the model with contradictory instructions -- it
+    returned a plan that then got logged as the user's utterance. And a cleanup
+    prompt without the scene in it free-associates: an early version turned
+    "pachai kattaiyai kinnathil vai" into "Turn on the fan."
+    """
+    from src.planner import CLEANUP_PROMPT, SYSTEM_PROMPT
+
+    assert CLEANUP_PROMPT is not SYSTEM_PROMPT
+    assert "JSON" not in CLEANUP_PROMPT.replace("No JSON", "")
+    for token in ("red", "green", "blue", "bowl", "sivappu", "pachai", "edu"):
+        assert token in CLEANUP_PROMPT.lower(), f"cleanup prompt lacks {token!r}"
+
+
+def test_cleanup_rejects_a_leaked_plan(monkeypatch) -> None:
+    from src import speech
+
+    monkeypatch.setattr("src.planner._generate",
+                        lambda *a, **k: '[{"action":"pick","target":"a red cube"}]')
+    raw = "sivappu block-ah edu"
+    assert speech.clean_transcript(raw) == raw

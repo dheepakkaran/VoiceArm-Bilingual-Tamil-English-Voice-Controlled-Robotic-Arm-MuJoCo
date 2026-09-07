@@ -151,14 +151,33 @@ def _extract_json(text: str) -> list[dict[str, Any]] | None:
     return steps or None
 
 
-def _chat_prompt(tokenizer, utterance: str, nudge: str):
+CLEANUP_PROMPT = """You repair speech-recognition transcripts of robot commands.
+
+The text is a transcript of someone speaking to a robot arm. It is likely
+code-switched Tamil-English from a Tamil speaker and may contain recognition
+errors, wrong-script decoding, or repeated words.
+
+The robot can only do one thing: pick up a cube and optionally put it in a bowl.
+The table holds a red cube, a green cube, a blue cube, and one white bowl. The
+speaker is always asking for some combination of those. Resolve the transcript
+to the nearest such request -- never invent an action the robot cannot perform.
+
+Tamil vocabulary that shows up: sivappu/சிவப்பு = red, pachai/பச்சை = green,
+neelam/நீல = blue, kattai/கட்டை = block or cube, kinnam/கிண்ணம் = bowl,
+edu/எடு = pick up, vai/வை or podu/போடு = put or place.
+
+Reply with exactly one English sentence stating what the speaker wants. No JSON,
+no lists, no explanation, no quotes -- just the sentence."""
+
+
+def _chat_prompt(tokenizer, utterance: str, nudge: str, system: str):
     """Render the chat template, disabling Qwen3's thinking mode.
 
     Left as tokens for MLX and as text for transformers, which is what each
     generate path expects.
     """
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + nudge},
+        {"role": "system", "content": system + nudge},
         {"role": "user", "content": utterance},
     ]
     try:  # Qwen3 exposes a thinking mode; JSON-only output needs it off
@@ -172,10 +191,18 @@ def _chat_prompt(tokenizer, utterance: str, nudge: str):
         )
 
 
-def _generate(utterance: str, nudge: str = "") -> str:
+def _generate(utterance: str, nudge: str = "", system: str | None = None) -> str:
+    """Generate against `system`, defaulting to the planner prompt.
+
+    The system prompt has to be swappable: transcript cleanup asks for a plain
+    sentence, and appending that request to the planner prompt -- which demands
+    "ONLY a JSON array" -- left the model with contradictory instructions. It
+    followed the stronger one and returned a plan, which then got logged as the
+    user's utterance.
+    """
     model, tokenizer = _load()
     release_caches()          # ASR and detection pools would otherwise page us out
-    prompt = _chat_prompt(tokenizer, utterance, nudge)
+    prompt = _chat_prompt(tokenizer, utterance, nudge, system or SYSTEM_PROMPT)
 
     if backend.IS_MLX:
         from mlx_lm import generate
