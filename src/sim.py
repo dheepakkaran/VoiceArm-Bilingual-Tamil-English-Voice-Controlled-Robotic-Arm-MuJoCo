@@ -8,6 +8,7 @@ before compiling, which keeps the vendored asset untouched.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import mujoco
@@ -66,6 +67,7 @@ class SimEnv:
         self._rec_every = 0
         self._rec_cam = config.SCENE_CAM
         self._rec_tick = 0
+        self._rec_cb: Callable[[np.ndarray, int], None] | None = None
         self.reset()
 
     # -- setup ---------------------------------------------------------------
@@ -127,12 +129,19 @@ class SimEnv:
         return {n: self.body_pos(n) for n in names}
 
     # -- stepping ------------------------------------------------------------
-    def start_recording(self, camera: str = config.SCENE_CAM, every: int = 25) -> None:
-        """Capture a frame every `every` physics steps until `stop_recording`."""
+    def start_recording(self, camera: str = config.SCENE_CAM, every: int = 25,
+                        on_frame: Callable[[np.ndarray, int], None] | None = None) -> None:
+        """Capture a frame every `every` physics steps until `stop_recording`.
+
+        `on_frame(frame, index)` is invoked as each frame is taken, which lets a
+        UI stream the motion live instead of waiting for the run to finish.
+        """
         self._rec_frames, self._rec_every, self._rec_cam, self._rec_tick = [], every, camera, 0
+        self._rec_cb = on_frame
 
     def stop_recording(self) -> list[np.ndarray]:
         frames, self._rec_frames, self._rec_every = self._rec_frames, [], 0
+        self._rec_cb = None
         return frames
 
     def step(self, n: int = 1) -> None:
@@ -141,7 +150,10 @@ class SimEnv:
             if self._rec_every:
                 self._rec_tick += 1
                 if self._rec_tick % self._rec_every == 0:
-                    self._rec_frames.append(self.render(self._rec_cam))
+                    frame = self.render(self._rec_cam)
+                    self._rec_frames.append(frame)
+                    if self._rec_cb is not None:
+                        self._rec_cb(frame, len(self._rec_frames) - 1)
 
     def settle(self, n: int = 100) -> None:
         """Step without changing the command, letting the controller converge."""

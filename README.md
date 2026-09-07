@@ -190,6 +190,12 @@ angle unit from the compiler, and the vendored `panda.xml` sets
 `angle="radian"`; degree-valued `euler` attributes were silently reinterpreted
 and produced a starburst instead of a bowl.
 
+**The dashboard streams the motion live rather than only replaying it.**
+`SimEnv.start_recording` takes an `on_frame` callback invoked as each frame is
+captured, so the Streamlit script can push frames into a placeholder while the
+episode is still running; the same frames are then encoded to mp4 per episode
+for replay. A pick-and-place streams 176 frames over roughly 9 seconds.
+
 **All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
 owns an OpenGL context bound to its creating thread. Streamlit reruns the script
 on a different ScriptRunner thread each time, and on macOS both reusing a
@@ -237,6 +243,7 @@ src/planner.py      local Qwen3 planner + deterministic Tamil regex fallback
 src/speech.py       dual-ASR script router and transcript cleanup
 src/executor.py     utterance -> plan -> perception -> motion -> episode
 src/episodes.py     LeRobot-compatible parquet logging
+src/video.py        mp4 encoding and contact-sheet helpers
 app.py              Streamlit dashboard
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone

@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from src import config, episodes
-from src.executor import execute
+from src.executor import episode_video, execute
 from src.sim import SimEnv
 
 st.set_page_config(page_title="VoiceArm", layout="wide")
@@ -74,8 +74,18 @@ with left:
         st.write(f"**Cleaned** — {text}")
 
     if (run or mic) and text:
+        st.subheader("Live")
+        live = st.empty()
+        caption = st.empty()
+
+        def show(frame, index):
+            live.image(frame, width="stretch")
+            caption.caption(f"frame {index + 1}")
+
         with st.spinner("Planning and executing…"):
-            ep = execute(env, text, transcript=transcript, capture_video=True)
+            ep = execute(env, text, transcript=transcript,
+                         capture_video=True, on_frame=show)
+        caption.empty()
         st.session_state["last"] = ep
 
 # --- last episode -----------------------------------------------------------
@@ -92,6 +102,10 @@ with right:
 
         st.write("**Plan**")
         st.json(json.loads(ep.plan_json))
+
+        video = episode_video(ep.episode_id)
+        if video.exists():
+            st.video(str(video))
 
         detail = f"plan source `{ep.plan_source}`"
         if not np.isnan(ep.detect_error_m):

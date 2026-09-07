@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 
 import numpy as np
+
+from collections.abc import Callable
 
 from . import config, episodes, perception, planner
 from .grasp import MotionFailure, pick, place
@@ -28,9 +31,15 @@ def _ground_truth(env: SimEnv, target: str) -> np.ndarray | None:
     return None
 
 
+def episode_video(episode_id: str) -> Path:
+    return config.EPISODES / episode_id / "video.mp4"
+
+
 def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
             transcript: "object | None" = None, record: bool = True,
-            capture_video: bool = False) -> episodes.Episode:
+            capture_video: bool = False,
+            on_frame: Callable[[np.ndarray, int], None] | None = None,
+            frame_every: int = 25) -> episodes.Episode:
     """Run one instruction end to end and return the recorded episode."""
     t0 = time.perf_counter()
     ep = episodes.Episode(raw_utterance=utterance,
@@ -54,8 +63,8 @@ def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
 
     env.reset()
     env.park()
-    if capture_video:
-        env.start_recording(config.SCENE_CAM, every=25)
+    if capture_video or on_frame is not None:
+        env.start_recording(config.SCENE_CAM, every=frame_every, on_frame=on_frame)
     steps_before = int(env.data.time / env.model.opt.timestep)
     held: str | None = None
 
@@ -94,7 +103,12 @@ def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
     ep.num_sim_steps = int(env.data.time / env.model.opt.timestep) - steps_before
     ep.duration_s = time.perf_counter() - t0
 
-    frames = env.stop_recording() if capture_video else None
+    frames = env.stop_recording() if (capture_video or on_frame is not None) else None
     if record:
         episodes.record(ep, frames=frames, states=[env.get_joints()])
+    if frames and capture_video:
+        from .video import write_video
+
+        if not write_video(frames, episode_video(ep.episode_id)):
+            log.warning("no video encoder available for episode %s", ep.episode_id)
     return ep

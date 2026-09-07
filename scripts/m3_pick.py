@@ -10,41 +10,15 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import config
 from src.grasp import pick_and_place
+from src.video import frame_grid, write_video
 from src.sim import SimEnv
 
 BOWL_XY_TOL = 0.075   # inside the container walls
 DROP_Z_MIN = 0.40     # must still be off the floor
-
-
-def write_video(frames: list[np.ndarray], path: Path, fps: int = 20) -> bool:
-    try:
-        import cv2
-    except ImportError:
-        return False
-    h, w = frames[0].shape[:2]
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
-    if not writer.isOpened():
-        return False
-    for f in frames:
-        writer.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
-    writer.release()
-    return path.exists() and path.stat().st_size > 1024
-
-
-def frame_grid(frames: list[np.ndarray], path: Path, cols: int = 4, rows: int = 2) -> None:
-    idx = np.linspace(0, len(frames) - 1, cols * rows).astype(int)
-    picked = [frames[i] for i in idx]
-    grid = np.concatenate(
-        [np.concatenate(picked[r * cols:(r + 1) * cols], axis=1) for r in range(rows)],
-        axis=0,
-    )
-    Image.fromarray(grid).save(path)
 
 
 def main() -> int:
