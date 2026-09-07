@@ -35,6 +35,42 @@ CASES = [
     ("சிவப்பு கட்டையை கிண்ணத்தில் வை", "a red cube", True),
 ]
 DEFAULT_MODELS = ["Qwen/Qwen3-4B-Instruct-2507", "Qwen/Qwen3-8B"]
+# The 24B Tamil-native model the local machine could not hold. The community
+# 4-bit upload is 14 GB against 47 GB for the official fp16 weights.
+SARVAM_4BIT = "neuralnets/sarvam-m-4bit-q"
+
+
+def best_dtype():
+    """bfloat16 where the GPU supports it, float16 otherwise.
+
+    A T4 is compute capability 7.5 and has no bfloat16 units -- asking for it
+    silently falls back to a slow emulated path, which matters a lot when the
+    point of the run is a latency comparison. Kaggle's free tier is T4 x2, so
+    this is the common case rather than an edge one.
+    """
+    import torch
+
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float16 if torch.cuda.is_available() else torch.float32
+
+
+def already_quantized(repo: str) -> bool:
+    """True when the checkpoint ships its own quantization config.
+
+    Community 4-bit uploads carry a quantization_config, and handing those a
+    fresh BitsAndBytesConfig makes transformers try to quantize an already
+    quantized tensor. Worth checking rather than requiring the caller to know:
+    the pre-quantized sarvam-m is 14 GB against 47 GB for the official weights,
+    so it is the one you actually want on a free GPU.
+    """
+    from transformers import AutoConfig
+
+    try:
+        cfg = AutoConfig.from_pretrained(repo)
+    except Exception:
+        return False
+    return getattr(cfg, "quantization_config", None) is not None
 
 
 def load(repo: str, four_bit: bool):
@@ -42,22 +78,25 @@ def load(repo: str, four_bit: bool):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    dtype = best_dtype()
     tok = AutoTokenizer.from_pretrained(repo)
-    kwargs: dict = {"low_cpu_mem_usage": True}
-    if four_bit:
+    kwargs: dict = {"low_cpu_mem_usage": True, "device_map": "auto"}
+
+    if four_bit and already_quantized(repo):
+        print("  checkpoint is pre-quantized; not re-quantizing")
+        four_bit = False
+        kwargs.pop("dtype", None)
+    elif four_bit:
         from transformers import BitsAndBytesConfig
 
         kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
+            load_in_4bit=True, bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
         )
-        kwargs["device_map"] = "auto"
-    else:
-        kwargs["dtype"] = torch.bfloat16
+    elif not already_quantized(repo):
+        kwargs["dtype"] = dtype
 
     model = AutoModelForCausalLM.from_pretrained(repo, **kwargs)
-    if not four_bit:
-        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     return model.eval(), tok
 
 
@@ -119,7 +158,15 @@ def main() -> int:
             print(f"  {'PASS' if ok else 'FAIL'}  {utterance[:38]:<40}"
                   f"{lats[-1]:5.2f}s  {raw.strip()[:60]}")
 
-        rows.append((repo, correct, float(np.mean(lats)), load_s))
+        try:
+            import torch
+
+            vram = torch.cuda.max_memory_allocated() / 1e9
+            torch.cuda.reset_peak_memory_stats()
+        except Exception:
+            vram = float("nan")
+
+        rows.append((repo, correct, float(np.mean(lats)), load_s, vram))
         del model, tok
         try:
             import torch
@@ -132,15 +179,16 @@ def main() -> int:
         print("\nno model loaded successfully")
         return 1
 
-    print(f"\n{'model':<40}{'correct':>9}{'mean gen':>10}{'load':>8}")
-    for repo, correct, lat, load_s in rows:
-        print(f"{repo:<40}{correct:>5}/{len(CASES)}{lat:>9.2f}s{load_s:>7.0f}s")
+    print(f"\n{'model':<40}{'correct':>9}{'mean gen':>10}{'load':>8}{'peak vram':>11}")
+    for repo, correct, lat, load_s, vram in rows:
+        print(f"{repo:<40}{correct:>5}/{len(CASES)}{lat:>9.2f}s{load_s:>7.0f}s{vram:>10.1f}G")
 
     out = Path("out/planner_bench.json")
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(
         [{"model": r, "correct": c, "of": len(CASES), "mean_gen_s": round(l, 3),
-          "load_s": round(s, 1)} for r, c, l, s in rows], indent=2))
+          "load_s": round(s, 1), "peak_vram_gb": round(v, 2)}
+         for r, c, l, s, v in rows], indent=2))
     print(f"\nwrote {out}")
     return 0
 
