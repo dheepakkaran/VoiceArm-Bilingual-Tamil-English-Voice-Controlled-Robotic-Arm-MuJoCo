@@ -1,0 +1,12 @@
+mujoco==3.12.0
+numpy>=2.0
+scipy
+opencv-python-headless
+pillow
+pandas
+pyarrow
+torch
+transformers>=4.45
+accelerate
+gradio==6.26.0
+spaces

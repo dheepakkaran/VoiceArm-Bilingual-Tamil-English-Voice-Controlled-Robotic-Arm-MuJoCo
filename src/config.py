@@ -42,9 +42,9 @@ APPROACH_HEIGHT = 0.12     # m above target before descending
 WAYPOINT_STEPS = 60
 GRASP_SNAP_DIST = 0.03     # m, weld fallback threshold
 
-# --- models (later milestones) ---------------------------------------------
-LLM_MODEL = "mlx-community/Qwen3-4B-4bit"
-ASR_MULTILINGUAL = "mlx-community/whisper-large-v3-mlx"
+# --- models -----------------------------------------------------------------
+# The planner and the multilingual ASR model differ per backend, so their ids
+# live in src/backend.py. These two are torch-only either way.
 ASR_TAMIL = "vasista22/whisper-tamil-medium"
 DETECTOR = "google/owlv2-base-patch16-ensemble"
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from . import config
+from . import backend, config
 from .memory import release_caches
 from .sim import SimEnv
 
@@ -96,7 +96,7 @@ def _load():
     import torch
     from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-    _device = "mps" if torch.backends.mps.is_available() else "cpu"
+    _device = backend.torch_device()
     log.info("loading %s on %s", config.DETECTOR, _device)
     _processor = AutoProcessor.from_pretrained(config.DETECTOR)
     _model = (AutoModelForZeroShotObjectDetection

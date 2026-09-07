@@ -15,12 +15,14 @@ import re
 import time
 from typing import Any
 
-from . import config
+from . import backend, config
 from .memory import release_caches
 
 log = logging.getLogger(__name__)
 
 ACTIONS = {"pick", "place", "move_to", "say"}
+MAX_TOKENS = 300
+TEMPERATURE = 0.2
 
 _llm = None
 _tokenizer = None
@@ -97,14 +99,29 @@ def plan_fallback(utterance: str) -> list[dict[str, Any]]:
 
 # --- local LLM --------------------------------------------------------------
 def _load():
+    """Load the planner once. MLX on Apple Silicon, transformers elsewhere."""
     global _llm, _tokenizer
     if _llm is not None:
         return _llm, _tokenizer
-    from mlx_lm import load
 
     t0 = time.perf_counter()
-    log.info("loading %s", config.LLM_MODEL)
-    _llm, _tokenizer = load(config.LLM_MODEL)
+    log.info("loading %s (%s)", backend.LLM_MODEL, backend.BACKEND)
+
+    if backend.IS_MLX:
+        from mlx_lm import load
+
+        _llm, _tokenizer = load(backend.LLM_MODEL)
+    else:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        device = backend.torch_device()
+        dtype = torch.float32 if device == "cpu" else torch.bfloat16
+        _tokenizer = AutoTokenizer.from_pretrained(backend.LLM_MODEL)
+        _llm = AutoModelForCausalLM.from_pretrained(
+            backend.LLM_MODEL, dtype=dtype, low_cpu_mem_usage=True,
+        ).to(device).eval()
+
     release_caches()
     log.info("planner ready in %.1f s", time.perf_counter() - t0)
     return _llm, _tokenizer
@@ -134,25 +151,47 @@ def _extract_json(text: str) -> list[dict[str, Any]] | None:
     return steps or None
 
 
-def _generate(utterance: str, nudge: str = "") -> str:
-    from mlx_lm import generate
-    from mlx_lm.sample_utils import make_sampler
+def _chat_prompt(tokenizer, utterance: str, nudge: str):
+    """Render the chat template, disabling Qwen3's thinking mode.
 
-    model, tokenizer = _load()
-    release_caches()          # ASR and detection pools would otherwise page us out
+    Left as tokens for MLX and as text for transformers, which is what each
+    generate path expects.
+    """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT + nudge},
         {"role": "user", "content": utterance},
     ]
     try:  # Qwen3 exposes a thinking mode; JSON-only output needs it off
-        prompt = tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, enable_thinking=False
+        return tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, enable_thinking=False,
+            tokenize=backend.IS_MLX,
         )
     except TypeError:
-        prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+        return tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=backend.IS_MLX,
+        )
 
-    return generate(model, tokenizer, prompt=prompt, max_tokens=300,
-                    sampler=make_sampler(temp=0.2), verbose=False)
+
+def _generate(utterance: str, nudge: str = "") -> str:
+    model, tokenizer = _load()
+    release_caches()          # ASR and detection pools would otherwise page us out
+    prompt = _chat_prompt(tokenizer, utterance, nudge)
+
+    if backend.IS_MLX:
+        from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
+
+        return generate(model, tokenizer, prompt=prompt, max_tokens=MAX_TOKENS,
+                        sampler=make_sampler(temp=TEMPERATURE), verbose=False)
+
+    import torch
+
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        out = model.generate(**inputs, max_new_tokens=MAX_TOKENS,
+                             do_sample=TEMPERATURE > 0, temperature=TEMPERATURE or None,
+                             pad_token_id=tokenizer.eos_token_id)
+    return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
 
 def plan(utterance: str) -> tuple[list[dict[str, Any]], str, float]:

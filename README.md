@@ -146,6 +146,47 @@ into *"Put the red cube in the bowl."*, which planned and executed successfully.
 
 Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
+## Live demo
+
+A Gradio front-end for Hugging Face Spaces lives in `hf_space/`. Stage and push
+it with:
+
+```bash
+python scripts/deploy_space.py                       # stage into build/space
+python scripts/deploy_space.py --push USER/VoiceArm   # upload (needs an HF token)
+```
+
+Then set the Space hardware to **ZeroGPU** in its settings. The deploy script
+stages a self-contained tree rather than pushing this repo, because Gradio
+Spaces need `app.py` at the root and the vendored Panda assets are gitignored
+here.
+
+## Running on two backends
+
+The same code runs on Apple Silicon through MLX and on Spaces through
+transformers. `src/backend.py` picks at import time and resolves the model ids:
+
+| | local (Apple Silicon) | Spaces (x86 + NVIDIA) |
+|---|---|---|
+| planner | `mlx-community/Qwen3-4B-4bit` | `Qwen/Qwen3-4B-Instruct-2507` |
+| multilingual ASR | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
+| Tamil ASR | `vasista22/whisper-tamil-medium` | same |
+| detector | `google/owlv2-base-patch16-ensemble` | same |
+| rendering | CGL (macOS default) | `MUJOCO_GL=egl` |
+
+Everything above the model-loading layer is shared: the router, the planner
+prompt, IK, grasp waypoints, 3D grounding, episode logging.
+
+Force the portable path on a Mac to test the Spaces code without deploying:
+
+```bash
+VOICEARM_BACKEND=torch ./run.sh m5
+```
+
+Measured on this machine, same command end to end: **7.0 s** on MLX,
+**27.5 s** on the transformers path over MPS. The transformers numbers are not
+representative of ZeroGPU, which runs an H200.
+
 ## Setup
 
 ```bash
@@ -264,6 +305,8 @@ src/speech.py       dual-ASR script router and transcript cleanup
 src/executor.py     utterance -> plan -> perception -> motion -> episode
 src/episodes.py     LeRobot-compatible parquet logging
 src/video.py        mp4 encoding and contact-sheet helpers
+src/backend.py      MLX-or-transformers selection and model id resolution
+hf_space/           Gradio app, requirements, and apt packages for Spaces
 app.py              Streamlit dashboard
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone

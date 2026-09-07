@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import config
+from . import backend, config
 from .memory import release_caches
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,13 @@ INDIC_LANGS = frozenset({"ta", "kn", "ml", "te", "hi", "bn", "mr",
                          "gu", "pa", "or", "si", "ne", "sa"})
 
 _tamil_pipe = None
+
+# transformers reports language names; the router compares ISO codes.
+_LANG_NAMES = {
+    "tamil": "ta", "hindi": "hi", "kannada": "kn", "malayalam": "ml",
+    "telugu": "te", "english": "en", "bengali": "bn", "marathi": "mr",
+    "gujarati": "gu", "punjabi": "pa", "sanskrit": "sa", "nepali": "ne",
+}
 
 
 # Only digital silence / a muted or unpermitted mic is gated on level. Quiet
@@ -109,11 +116,38 @@ def load_wav(path: str) -> np.ndarray:
 
 
 # --- backends ---------------------------------------------------------------
-def transcribe_multilingual(audio: np.ndarray) -> tuple[str, str]:
-    import mlx_whisper
+_multi_pipe = None
 
-    res = mlx_whisper.transcribe(audio, path_or_hf_repo=config.ASR_MULTILINGUAL)
-    return res["text"].strip(), res.get("language", "unknown")
+
+def transcribe_multilingual(audio: np.ndarray) -> tuple[str, str]:
+    """Transcribe with the multilingual model, returning (text, language)."""
+    if backend.IS_MLX:
+        import mlx_whisper
+
+        res = mlx_whisper.transcribe(audio, path_or_hf_repo=backend.ASR_MULTILINGUAL)
+        return res["text"].strip(), res.get("language", "unknown")
+
+    global _multi_pipe
+    if _multi_pipe is None:
+        import torch
+        from transformers import pipeline
+
+        device = backend.torch_device()
+        log.info("loading %s on %s", backend.ASR_MULTILINGUAL, device)
+        _multi_pipe = pipeline(
+            "automatic-speech-recognition", model=backend.ASR_MULTILINGUAL,
+            device=device, dtype=torch.float32 if device == "cpu" else torch.float16,
+        )
+        release_caches()
+
+    # The transformers pipeline does not report detected language, so ask the
+    # model for the language token explicitly rather than guessing from script.
+    res = _multi_pipe(audio.copy(), return_language=True,
+                      generate_kwargs={"task": "transcribe"})
+    text = res["text"].strip()
+    chunks = res.get("chunks") or []
+    lang = (chunks[0].get("language") if chunks else None) or "unknown"
+    return text, _LANG_NAMES.get(str(lang).lower(), str(lang).lower())
 
 
 def transcribe_tamil(audio: np.ndarray) -> str:
@@ -123,10 +157,12 @@ def transcribe_tamil(audio: np.ndarray) -> str:
         import torch
         from transformers import pipeline
 
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        device = backend.torch_device()
         log.info("loading %s on %s", config.ASR_TAMIL, device)
-        _tamil_pipe = pipeline("automatic-speech-recognition", model=config.ASR_TAMIL,
-                               device=device, torch_dtype=torch.float16)
+        _tamil_pipe = pipeline(
+            "automatic-speech-recognition", model=config.ASR_TAMIL, device=device,
+            dtype=torch.float32 if device == "cpu" else torch.float16,
+        )
         _tamil_pipe.model.config.forced_decoder_ids = (
             _tamil_pipe.tokenizer.get_decoder_prompt_ids(language="ta", task="transcribe")
         )
