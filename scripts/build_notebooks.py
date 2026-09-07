@@ -267,12 +267,31 @@ but offloads a few layers to CPU and runs slower.
 code("""
 import torch
 
-print("gpu  :", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NONE")
+if not torch.cuda.is_available():
+    raise SystemExit("No GPU. Settings -> Accelerator -> 'GPU T4 x2'.")
+
+cap = torch.cuda.get_device_capability()
+name = torch.cuda.get_device_name(0)
+print(f"gpu  : {name} (sm_{cap[0]}{cap[1]})")
 print("count:", torch.cuda.device_count())
 print("vram :", ", ".join(
     f"{torch.cuda.get_device_properties(i).total_memory / 1e9:.0f} GB"
-    for i in range(torch.cuda.device_count())) or "-")
-print("bf16 :", torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False)
+    for i in range(torch.cuda.device_count())))
+
+# Not torch.cuda.is_bf16_supported() -- that returns True on a P100, which has
+# no bfloat16 units. Ampere (sm_80) is where they actually appear.
+print("bf16 :", cap >= (8, 0))
+
+if cap < (7, 5):
+    print()
+    print(f"STOP: {name} is sm_{cap[0]}{cap[1]}.")
+    print("bitsandbytes 4-bit needs sm_75+, and this PyTorch build does not")
+    print("support sm_60 at all, so the run below will fail inside a CUDA kernel.")
+    print()
+    print("Fix: Settings -> Accelerator -> 'GPU T4 x2'. The default GPU is a")
+    print("P100, and the Kaggle API has no field for choosing the accelerator,")
+    print("so this one switch has to happen in the UI.")
+    raise SystemExit("unsupported GPU")
 """),
 code("""
 !pip install -q -U transformers accelerate bitsandbytes 2>&1 | tail -2

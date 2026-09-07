@@ -40,19 +40,61 @@ DEFAULT_MODELS = ["Qwen/Qwen3-4B-Instruct-2507", "Qwen/Qwen3-8B"]
 SARVAM_4BIT = "neuralnets/sarvam-m-4bit-q"
 
 
-def best_dtype():
-    """bfloat16 where the GPU supports it, float16 otherwise.
+# Compute capability floors. bfloat16 units arrive with Ampere; bitsandbytes'
+# 4-bit kernels need Turing. A Kaggle P100 is sm_60 and clears neither.
+BF16_MIN = (8, 0)
+BNB4_MIN = (7, 5)
 
-    A T4 is compute capability 7.5 and has no bfloat16 units -- asking for it
-    silently falls back to a slow emulated path, which matters a lot when the
-    point of the run is a latency comparison. Kaggle's free tier is T4 x2, so
-    this is the common case rather than an edge one.
+
+def capability() -> tuple[int, int] | None:
+    import torch
+
+    if not torch.cuda.is_available():
+        return None
+    return torch.cuda.get_device_capability()
+
+
+def best_dtype():
+    """bfloat16 only where the hardware really has it.
+
+    `torch.cuda.is_bf16_supported()` is not a reliable test: on a Tesla P100 it
+    returns True even though sm_60 has no bfloat16 units at all, so trusting it
+    silently selects an emulated path -- which would quietly corrupt a latency
+    comparison. Ask the compute capability instead.
     """
     import torch
 
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-        return torch.bfloat16
-    return torch.float16 if torch.cuda.is_available() else torch.float32
+    cap = capability()
+    if cap is None:
+        return torch.float32
+    return torch.bfloat16 if cap >= BF16_MIN else torch.float16
+
+
+def check_gpu(four_bit: bool) -> None:
+    """Fail early and legibly on a GPU the stack cannot use.
+
+    A first Kaggle run landed on a P100 and died inside a CUDA kernel with
+    "Error named symbol not found at ops.cu:74", which says nothing about the
+    actual problem.
+    """
+    import torch
+
+    cap = capability()
+    if cap is None:
+        print("no CUDA device -- this will run on CPU and be very slow")
+        return
+
+    name = torch.cuda.get_device_name(0)
+    print(f"gpu: {name} (sm_{cap[0]}{cap[1]}), dtype {best_dtype()}")
+
+    if four_bit and cap < BNB4_MIN:
+        raise SystemExit(
+            f"\n{name} is sm_{cap[0]}{cap[1]}; bitsandbytes 4-bit needs "
+            f"sm_{BNB4_MIN[0]}{BNB4_MIN[1]} or newer.\n"
+            "On Kaggle: Settings -> Accelerator -> 'GPU T4 x2'. The default GPU "
+            "is a P100, which this stack cannot use, and the Kaggle API has no "
+            "field for choosing the accelerator -- it has to be the UI."
+        )
 
 
 def already_quantized(repo: str) -> bool:
@@ -136,6 +178,8 @@ def main() -> int:
     ap.add_argument("--load-4bit", action="store_true",
                     help="quantize with bitsandbytes; needed for 20B+ models")
     args = ap.parse_args()
+
+    check_gpu(args.load_4bit)
 
     rows = []
     for repo in args.models:
