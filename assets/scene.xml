@@ -52,11 +52,17 @@
     <!-- Overhead camera. Frame z = x_cam cross y_cam = +Z, so it looks straight
          down. Axes are rotated so the image's wide dimension covers the table's
          wide dimension (world y), which keeps the whole worktop in frame. -->
-    <camera name="topcam" pos="0.52 0 1.30" xyaxes="0 1 0 -1 0 0" fovy="45" mode="fixed"/>
+    <camera name="topcam" pos="0.52 0 1.05" xyaxes="0 1 0 -1 0 0" fovy="45" mode="fixed"/>
 
     <!-- Angled demo camera. `targetbody` keeps it aimed at the table without
          hand-computing xyaxes. -->
     <camera name="scenecam" pos="1.45 -1.05 1.15" mode="targetbody" target="table" fovy="42"/>
+
+    <!-- Perception fallback view. Straight down, a bowl is only a ring and OWLv2
+         will not match it against any bowl-like query; from an angle it scores
+         0.29. Objects whose top face is diagnostic still ground more accurately
+         from `topcam`, so `locate()` tries that first and only falls back here. -->
+    <camera name="perceptcam" pos="0.55 -0.55 0.85" mode="targetbody" target="table" fovy="50"/>
 
     <body name="red_block" pos="0.42 -0.18 0.421">
       <freejoint name="red_free"/>
@@ -71,13 +77,30 @@
       <geom name="blue_geom" class="block" material="mat_blue"/>
     </body>
 
-    <!-- open-topped square container, inner half-extent 0.07, wall height 0.05 -->
+    <!-- Round open bowl: a ring of 16 thin boxes. A square container reads as a
+         white square from overhead and OWLv2 never matched it against "a white
+         bowl"; the round profile is what makes the query land. Segment rotations are
+         given as quaternions because panda.xml sets compiler angle="radian",
+         which would silently reinterpret euler degrees. -->
     <body name="bowl" pos="0.63 0.00 0.40">
-      <geom name="bowl_base" class="bowlwall" pos="0 0 0.005" size="0.08 0.08 0.005"/>
-      <geom name="bowl_wx+"  class="bowlwall" pos=" 0.075 0 0.03" size="0.005 0.08 0.03"/>
-      <geom name="bowl_wx-"  class="bowlwall" pos="-0.075 0 0.03" size="0.005 0.08 0.03"/>
-      <geom name="bowl_wy+"  class="bowlwall" pos="0  0.075 0.03" size="0.08 0.005 0.03"/>
-      <geom name="bowl_wy-"  class="bowlwall" pos="0 -0.075 0.03" size="0.08 0.005 0.03"/>
+      <geom name="bowl_base" type="cylinder" material="mat_bowl" pos="0 0 0.005"
+            size="0.0750 0.005" friction="0.6 0.005 0.0001"/>
+      <geom name="bowl_w00" class="bowlwall" pos="0.0750 0.0000 0.0250" size="0.0030 0.0169 0.0250" quat="1.000000 0 0 0.000000"/>
+      <geom name="bowl_w01" class="bowlwall" pos="0.0693 0.0287 0.0250" size="0.0030 0.0169 0.0250" quat="0.980785 0 0 0.195090"/>
+      <geom name="bowl_w02" class="bowlwall" pos="0.0530 0.0530 0.0250" size="0.0030 0.0169 0.0250" quat="0.923880 0 0 0.382683"/>
+      <geom name="bowl_w03" class="bowlwall" pos="0.0287 0.0693 0.0250" size="0.0030 0.0169 0.0250" quat="0.831470 0 0 0.555570"/>
+      <geom name="bowl_w04" class="bowlwall" pos="0.0000 0.0750 0.0250" size="0.0030 0.0169 0.0250" quat="0.707107 0 0 0.707107"/>
+      <geom name="bowl_w05" class="bowlwall" pos="-0.0287 0.0693 0.0250" size="0.0030 0.0169 0.0250" quat="0.555570 0 0 0.831470"/>
+      <geom name="bowl_w06" class="bowlwall" pos="-0.0530 0.0530 0.0250" size="0.0030 0.0169 0.0250" quat="0.382683 0 0 0.923880"/>
+      <geom name="bowl_w07" class="bowlwall" pos="-0.0693 0.0287 0.0250" size="0.0030 0.0169 0.0250" quat="0.195090 0 0 0.980785"/>
+      <geom name="bowl_w08" class="bowlwall" pos="-0.0750 0.0000 0.0250" size="0.0030 0.0169 0.0250" quat="0.000000 0 0 1.000000"/>
+      <geom name="bowl_w09" class="bowlwall" pos="-0.0693 -0.0287 0.0250" size="0.0030 0.0169 0.0250" quat="-0.195090 0 0 0.980785"/>
+      <geom name="bowl_w10" class="bowlwall" pos="-0.0530 -0.0530 0.0250" size="0.0030 0.0169 0.0250" quat="-0.382683 0 0 0.923880"/>
+      <geom name="bowl_w11" class="bowlwall" pos="-0.0287 -0.0693 0.0250" size="0.0030 0.0169 0.0250" quat="-0.555570 0 0 0.831470"/>
+      <geom name="bowl_w12" class="bowlwall" pos="-0.0000 -0.0750 0.0250" size="0.0030 0.0169 0.0250" quat="-0.707107 0 0 0.707107"/>
+      <geom name="bowl_w13" class="bowlwall" pos="0.0287 -0.0693 0.0250" size="0.0030 0.0169 0.0250" quat="-0.831470 0 0 0.555570"/>
+      <geom name="bowl_w14" class="bowlwall" pos="0.0530 -0.0530 0.0250" size="0.0030 0.0169 0.0250" quat="-0.923880 0 0 0.382683"/>
+      <geom name="bowl_w15" class="bowlwall" pos="0.0693 -0.0287 0.0250" size="0.0030 0.0169 0.0250" quat="-0.980785 0 0 0.195090"/>
       <site name="bowl_center" pos="0 0 0.06" size="0.005" rgba="1 1 0 0"/>
     </body>
   </worldbody>

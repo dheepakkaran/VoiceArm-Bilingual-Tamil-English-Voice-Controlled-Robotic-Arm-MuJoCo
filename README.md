@@ -20,8 +20,8 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 | **M1** | Scene, arm actuation, offscreen rendering | ✅ done |
 | **M2** | Forward + inverse kinematics | ✅ done |
 | **M3** | Grasp primitives (pick & place) | ✅ done |
-| M4 | Open-vocabulary perception (OWL-ViT + depth) | ⬜ next |
-| M5 | Local LLM task planner | ⬜ |
+| **M4** | Open-vocabulary perception (OWLv2 + depth) | ✅ done |
+| M5 | Local LLM task planner | ⬜ next |
 | M6 | Dual-ASR Tamil/English speech router | ⬜ |
 | M7 | Episode logging + Streamlit dashboard | ⬜ |
 
@@ -73,7 +73,21 @@ dropped in the container:
 | Mean final offset from container centre | **1.7 mm** |
 | Grasp strategy | friction only — no weld constraint needed |
 
-Reproduce with `./run.sh m1`, `./run.sh m2`, and `./run.sh m3`.
+**M4 — open-vocabulary grounding**, four free-text queries against simulator
+ground truth:
+
+![detections](docs/m4_detections.png)
+
+| Query | Camera | Score | Error |
+|---|---|---|---|
+| "a red cube" | topcam | 0.58 | 0.5 cm |
+| "a green cube" | topcam | 0.56 | 0.2 cm |
+| "a blue cube" | topcam | 0.65 | 0.5 cm |
+| "a white bowl" | perceptcam | 0.21 | 1.5 cm |
+
+**4 / 4 within 3 cm**, mean error **0.66 cm**.
+
+Reproduce with `./run.sh m1` … `./run.sh m4`.
 
 ## Setup
 
@@ -92,6 +106,7 @@ cloning the full repository.
 ./run.sh m1      # three-pose actuation demo, writes out/m1_frames.png
 ./run.sh m2      # IK accuracy table over 10 random targets
 ./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
+./run.sh m4      # open-vocabulary detection + 3D grounding vs ground truth
 ./run.sh test    # pytest smoke suite
 ```
 
@@ -113,6 +128,24 @@ aligns the finger-separation axis with world *y*.
 workspace the 2 mm grasp tolerance is unreachable for approach and lift poses,
 which made `place()` fail on a target that was in fact fine to reach. Approach
 and lift now solve to 6 mm; only the grasp waypoint holds 2 mm.
+
+**Perception uses a camera cascade, not a per-object rule.** Straight down, a
+bowl is only a white ring and OWLv2 scored nothing against any bowl-like query;
+from an angle it scores 0.29. Cubes ground far more accurately from overhead
+(0.2–0.5 cm vs 1.4–2.0 cm) because their top face is what the depth sample hits.
+`locate()` therefore tries `topcam` first and falls back to the angled
+`perceptcam`, taking the first confident detection. Nothing in that path knows
+which objects need which view, so an unseen noun gets the same benefit.
+
+**Depth lands on the top face, not the centre.** An overhead view only ever sees
+an object's top surface, so the deprojected point sits half an object-height too
+high. For anything resting on the table the centre is the midpoint between that
+surface and the tabletop — which needs no prior knowledge of the object's size.
+
+**The bowl is a ring of 16 boxes with quaternion rotations.** MuJoCo takes its
+angle unit from the compiler, and the vendored `panda.xml` sets
+`angle="radian"`; degree-valued `euler` attributes were silently reinterpreted
+and produced a starburst instead of a bowl.
 
 **IK is damped least squares on the site Jacobian.** `mink` is used when it is
 installed; the built-in solver is the default path and is what the numbers above
@@ -136,6 +169,7 @@ src/config.py       paths, model ids, tuning constants
 src/sim.py          SimEnv — model build, actuation, rendering
 src/kinematics.py   FK, damped-least-squares IK (3- and 6-DoF), interpolation
 src/grasp.py        top-down pick / place primitives from Cartesian waypoints
+src/perception.py   RGB-D capture, OWLv2 detection, pinhole 3D grounding
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
 tests/test_smoke.py smoke suite
@@ -148,7 +182,7 @@ tests/test_smoke.py smoke suite
 | Physics | MuJoCo 3.12 |
 | Robot | Franka Emika Panda (`mujoco_menagerie`) |
 | IK | Damped least squares (`mink` optional) |
-| Perception | OWL-ViT (`google/owlvit-base-patch32`) — M4 |
+| Perception | OWLv2 (`google/owlv2-base-patch16-ensemble`) |
 | Planner | `mlx-community/Qwen3-8B-4bit` — M5 |
 | ASR | Whisper large-v3 (MLX) + `vasista22/whisper-tamil-medium` — M6 |
 | UI | Streamlit — M7 |
