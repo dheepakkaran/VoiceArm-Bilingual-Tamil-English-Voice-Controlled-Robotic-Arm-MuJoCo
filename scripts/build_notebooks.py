@@ -238,8 +238,15 @@ for one reason only -- at 4-bit it needs about 13 GB and would not co-reside
 with the other three models on a 16 GB laptop. A T4 x2 session has 32 GB, so the
 comparison the README could not make is possible here.
 
-There is a dedicated notebook for it:
-[voicearm_planner_ablation.ipynb]({GH}/blob/main/notebooks/voicearm_planner_ablation.ipynb)
+`scripts/bench_planner.py` runs that comparison:
+
+```
+!python scripts/bench_planner.py \
+    --models Qwen/Qwen3-4B-Instruct-2507 neuralnets/sarvam-m-4bit-q --load-4bit
+```
+
+It needs sm_75 or newer, which a Colab T4 is, and about 22 GB of downloads. The
+pre-quantized sarvam-m upload is 14 GB against 47 GB for the official weights.
 """),
     ])
 
