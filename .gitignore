@@ -7,3 +7,4 @@ assets/mujoco_menagerie/
 .DS_Store
 MUJOCO_LOG.TXT
 build/
+.gradio/

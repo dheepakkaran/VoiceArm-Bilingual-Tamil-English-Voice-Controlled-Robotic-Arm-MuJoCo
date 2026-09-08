@@ -189,11 +189,11 @@ input-volume trap that made the first local microphone test silently record
 nothing.
 
 `scripts/bench_planner.py` compares planner models on the eight reference
-utterances. It is the way to settle whether `sarvam-m` (24B) would plan better
-than the shipped Qwen3-4B — that model was rejected purely because 13 GB at
-4-bit will not co-reside with two ASR models and a detector on 16 GB. It wants a
-24 GB GPU, which this project has not had access to, so the README's claim stays
-what it is: a footprint decision, not a measured one.
+utterances, and is how the `sarvam-m` question would be settled. That 24B model
+was rejected purely because 13 GB at 4-bit will not co-reside with two ASR
+models and a detector on 16 GB — it needs a 24 GB GPU, which this project has
+not had. So the claim stays what it is: a footprint decision, not a measured
+one.
 
 ## Running on two backends
 
@@ -342,7 +342,7 @@ src/video.py        mp4 encoding and contact-sheet helpers
 src/backend.py      MLX-or-transformers selection and model id resolution
 webapp/           Gradio app, requirements, and apt packages for Spaces
 docs/               showcase page served by GitHub Pages, plus its media
-notebooks/          Colab notebook for the full pipeline, plus the planner ablation
+notebooks/          Colab notebook that runs the whole pipeline on a free GPU
 scripts/bench_planner.py  planner model comparison on the 8 reference utterances
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
