@@ -72,15 +72,14 @@
 
   <div class="badges">
     <a class="badge primary" href="https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb">▶ Run it live on Colab</a>
-    <a class="badge" href="https://kaggle.com/kernels/welcome?src=https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb">Run on Kaggle</a>
     <a class="badge" href="https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo">Source on GitHub</a>
   </div>
 
   <div class="note">
     <strong>Why this page is static.</strong> A live Gradio Space needs a paid tier,
     and a free GPU session gives a share link that dies with the session. So the
-    permanent link is this page, and the live pipeline runs on Colab or Kaggle's
-    free GPU when you click above. The Gradio app is written and tested — it is in
+    permanent link is this page, and the live pipeline runs on Colab's free GPU
+    when you click above. The Gradio app is written and tested — it is in
     <code>hf_space/</code> and one push away if the hosting changes.
   </div>
 
@@ -183,8 +182,8 @@
   1.8x faster at half the memory, so it ships. <code>sarvam-m</code> (24B) is the
   strongest open model for Tamil and was rejected purely on footprint — at 4-bit it
   needs ~13 GB and will not co-reside with the other three models on 16 GB. That is a
-  hardware constraint, not a quality claim, and the Colab notebook has a cell to test
-  it on a 32 GB session.</p>
+  hardware constraint, not a quality claim; <code>scripts/bench_planner.py</code>
+  will settle it on a 24 GB GPU, which this project has not had access to.</p>
 
   <h2>Stack</h2>
   <p>
