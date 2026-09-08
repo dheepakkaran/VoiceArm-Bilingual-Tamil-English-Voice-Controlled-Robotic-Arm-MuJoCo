@@ -10,7 +10,7 @@ case "${1:-}" in
   m4)   $PY scripts/m4_detect.py ;;
   m5)   $PY scripts/m5_plan.py ;;
   m6)   shift; $PY scripts/m6_voice.py "$@" ;;
-  app)  .venv/bin/streamlit run app.py ;;
+  app)  $PY webapp/app.py ;;
   bench) $PY scripts/bench_asr.py ;;
   test) $PY -m pytest tests/ -q ;;
   *)    echo "usage: $0 {m1|m2|m3|m4|m5|m6|bench|app|test}" ; exit 1 ;;

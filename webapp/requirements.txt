@@ -9,4 +9,3 @@ torch
 transformers>=4.45
 accelerate
 gradio==6.26.0
-spaces

@@ -1,15 +1,12 @@
-"""Gradio front-end for the Hugging Face Space.
+"""Gradio front-end, launched by the Colab notebook.
 
-Differences from the local Streamlit dashboard, all forced by the platform:
+Why a web UI at all, when a notebook cell can call `execute()` in three lines:
 
-* Inference runs inside `@spaces.GPU`, so models must be *loaded* at import time
-  (outside the decorator) and only *used* inside it. Loading inside would spend
-  GPU quota on downloads.
-* Free ZeroGPU accounts get a few minutes of GPU per day. When that runs out the
-  Space must still show something, so there is a text-only CPU path and a
-  pre-recorded fallback rather than a stack trace.
-* Gradio's microphone component works in the browser, which is actually better
-  than the local setup -- no input-device volume to get wrong.
+* Gradio's microphone records in the browser, which is the whole reason this
+  exists rather than a notebook cell: `sounddevice` needs a local input device
+  and there is none on a Colab runtime. It also sidesteps the input-volume trap
+  that made the first local microphone test record silence.
+* Models load once at import, not per request.
 """
 from __future__ import annotations
 
@@ -37,24 +34,15 @@ from src.video import write_video  # noqa: E402
 
 log = logging.getLogger("voicearm.space")
 
-# The ZeroGPU decorator only exists on Spaces hardware. Locally it has to be a
-# no-op so the same file runs unchanged -- and the check has to be for the GPU
-# attribute, not just a successful import, because a directory named `spaces`
-# anywhere on sys.path shadows the package and imports cleanly with no GPU.
-try:
-    import spaces as _spaces
+def gpu(*args, **kwargs):
+    """No-op stand-in for a GPU-scheduling decorator.
 
-    HAS_ZEROGPU = hasattr(_spaces, "GPU")
-except ImportError:
-    HAS_ZEROGPU = False
-
-if HAS_ZEROGPU:
-    gpu = _spaces.GPU
-else:
-    def gpu(*args, **kwargs):
-        def wrap(fn):
-            return fn
-        return wrap
+    Kept as a seam rather than deleted: the functions below are the ones that
+    would need wrapping if this ever ran somewhere that schedules GPU per call.
+    """
+    def wrap(fn):
+        return fn
+    return wrap
 
 
 EXAMPLES = [

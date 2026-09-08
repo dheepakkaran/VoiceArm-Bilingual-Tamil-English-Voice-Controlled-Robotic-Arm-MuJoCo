@@ -23,7 +23,7 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 | **M4** | Open-vocabulary perception (OWLv2 + depth) | ✅ done |
 | **M5** | Local LLM task planner | ✅ done |
 | **M6** | Dual-ASR Tamil/English speech router | ✅ done |
-| **M7** | Episode logging + Streamlit dashboard | ✅ done |
+| **M7** | Episode logging + web dashboard | ✅ done |
 
 ## Pipeline
 
@@ -39,7 +39,7 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
    topcam RGB+depth ──► OWL-ViT ──► 3D grounding ──► IK ──► MuJoCo execution
                                                               │
                                                               ▼
-                                                   episode log ──► Streamlit
+                                                   episode log ──► dashboard
 ```
 
 ## Results so far
@@ -166,11 +166,16 @@ stating: GitHub renders a relative `.mp4` in a README as a link rather than a
 player, so there was nowhere the execution videos actually played. Everything
 else on it is also in this README.
 
-There is no hosted Gradio Space. That needs an HF PRO subscription — a free
-account gets `402 Payment Required` on create — and a free GPU session's share
-link dies with the session, so there is no free path to a permanent live demo.
-The Gradio app is written and tested either way, in `hf_space/`, and
-`scripts/deploy_space.py --push USER/SPACE` will publish it if that changes.
+**There is no permanently hosted interactive demo,** because there is no free way
+to have one: a hosted Gradio app needs a paid tier, and a free GPU session's
+share link dies with the session. The notebook is the interactive path.
+
+**Why `webapp/` exists at all,** when a notebook cell can call `execute()` in
+three lines: browser microphone capture. `sounddevice` needs a local input
+device and a Colab runtime has none, so the voice half of a "voice-controlled
+arm" would be unreachable in the only runnable demo. It also sidesteps the
+input-volume trap that made the first local microphone test silently record
+nothing.
 
 `scripts/bench_planner.py` compares planner models on the eight reference
 utterances. It is the way to settle whether `sarvam-m` (24B) would plan better
@@ -224,7 +229,7 @@ cloning the full repository.
 ./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
 ./run.sh m4      # open-vocabulary detection + 3D grounding vs ground truth
 ./run.sh m5      # eight Tamil / English / Tanglish commands, end to end
-./run.sh app     # Streamlit dashboard on http://localhost:8501
+./run.sh app     # Gradio dashboard, prints a local URL
 
 .venv/bin/python scripts/m6_voice.py             # synthesised Tamil clip
 .venv/bin/python scripts/m6_voice.py --mic       # speak into the microphone
@@ -271,13 +276,13 @@ and produced a starburst instead of a bowl.
 
 **The dashboard streams the motion live rather than only replaying it.**
 `SimEnv.start_recording` takes an `on_frame` callback invoked as each frame is
-captured, so the Streamlit script can push frames into a placeholder while the
+captured, so the UI can push frames into a placeholder while the
 episode is still running; the same frames are then encoded to mp4 per episode
 for replay. A pick-and-place streams 176 frames over roughly 9 seconds.
 
 **All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
-owns an OpenGL context bound to its creating thread. Streamlit reruns the script
-on a different ScriptRunner thread each time, and on macOS both reusing a
+owns an OpenGL context bound to its creating thread, and a web framework calls in
+from a different worker thread per request. and on macOS both reusing a
 context across threads *and* creating a second one from another thread deadlock
 rather than raise — the dashboard hung silently on its first command. `SimEnv`
 now owns a single-worker executor; every render is submitted to it and the
@@ -324,11 +329,10 @@ src/executor.py     utterance -> plan -> perception -> motion -> episode
 src/episodes.py     LeRobot-compatible parquet logging
 src/video.py        mp4 encoding and contact-sheet helpers
 src/backend.py      MLX-or-transformers selection and model id resolution
-hf_space/           Gradio app, requirements, and apt packages for Spaces
+webapp/           Gradio app, requirements, and apt packages for Spaces
 docs/               showcase page served by GitHub Pages, plus its media
 notebooks/          Colab notebook for the full pipeline, plus the planner ablation
 scripts/bench_planner.py  planner model comparison on the 8 reference utterances
-app.py              Streamlit dashboard
 assets/scene.xml    table, three blocks, container, overhead camera
 scripts/m*.py       one runnable acceptance demo per milestone
 tests/test_smoke.py smoke suite
@@ -345,7 +349,7 @@ tests/test_smoke.py smoke suite
 | Planner | `mlx-community/Qwen3-8B-4bit` via `mlx-lm` |
 | ASR | `mlx-community/whisper-large-v3-mlx` + `vasista22/whisper-tamil-medium` |
 | Episodes | LeRobot-compatible parquet (pyarrow, not the `lerobot` package) |
-| UI | Streamlit |
+| UI | Gradio |
 
 ## Model selection
 

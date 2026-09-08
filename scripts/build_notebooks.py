@@ -128,7 +128,7 @@ print("project at", PROJ)
 code("""
 # requirements.txt pins the Apple/MLX stack; on an NVIDIA box we want the
 # portable one that the Space uses.
-!pip install -q -r hf_space/requirements.txt 2>&1 | tail -3
+!pip install -q -r webapp/requirements.txt 2>&1 | tail -3
 print("deps installed")
 """),
 code("""
@@ -223,7 +223,7 @@ import sys
 
 sys.path.insert(0, ".")
 
-spec = importlib.util.spec_from_file_location("space_app", "hf_space/app.py")
+spec = importlib.util.spec_from_file_location("space_app", "webapp/app.py")
 space_app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(space_app)
 

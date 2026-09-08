@@ -55,11 +55,11 @@ class SimEnv:
         self.data = mujoco.MjData(self.model)
         self._qadr = self._arm_qpos_adr()
         # A MuJoCo Renderer owns an OpenGL context bound to the thread that
-        # created it. Streamlit reruns the script on a different ScriptRunner
-        # thread each time, and on macOS both reusing a context across threads
-        # and creating a second one from another thread deadlock rather than
-        # raise. All rendering is therefore funnelled through one worker thread
-        # that owns every context; callers block on the result.
+        # created it, and any web framework will call in from a different worker
+        # thread per request. On macOS both reusing a context across threads and
+        # creating a second one from another thread deadlock rather than raise.
+        # All rendering is therefore funnelled through one worker thread that
+        # owns every context; callers block on the result.
         self._renderers: dict[bool, mujoco.Renderer] = {}
         self._gl: ThreadPoolExecutor | None = None
         self._render_enabled = render

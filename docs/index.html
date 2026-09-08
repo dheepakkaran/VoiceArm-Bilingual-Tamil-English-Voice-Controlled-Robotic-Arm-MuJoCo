@@ -80,7 +80,7 @@
     tier, and a free GPU session gives a share link that dies with the session — so
     there is no free path to a permanent live demo. This page is the permanent part,
     and the pipeline runs on Colab's free GPU when you click above. The Gradio app
-    itself is written and tested; it is in <code>hf_space/</code> and one command
+    itself is written and tested; it is in <code>webapp/</code> and one command
     away if the hosting situation changes.
   </div>
 
@@ -193,7 +193,7 @@
     <span class="tag">Qwen3-4B</span><span class="tag">Whisper large-v3</span>
     <span class="tag">whisper-tamil-medium</span><span class="tag">MLX</span>
     <span class="tag">PyTorch</span><span class="tag">Gradio</span>
-    <span class="tag">Streamlit</span><span class="tag">LeRobot-compatible parquet</span>
+    <span class="tag">LeRobot-compatible parquet</span>
   </p>
   <p>One codebase runs two backends: MLX on Apple Silicon, transformers on
   x86 + NVIDIA. <code>src/backend.py</code> selects at import and resolves the model
