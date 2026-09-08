@@ -175,4 +175,14 @@ def build() -> gr.Blocks:
 
 
 if __name__ == "__main__":
-    build().queue(max_size=8).launch(theme=gr.themes.Soft())
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--share", action="store_true",
+                    help="expose a public gradio.live tunnel URL (expires in 72h)")
+    ap.add_argument("--port", type=int, default=7860)
+    args = ap.parse_args()
+
+    build().queue(max_size=8).launch(
+        theme=gr.themes.Soft(), share=args.share, server_port=args.port,
+    )

@@ -170,6 +170,17 @@ else on it is also in this README.
 to have one: a hosted Gradio app needs a paid tier, and a free GPU session's
 share link dies with the session. The notebook is the interactive path.
 
+For a link someone else can open while your machine is running:
+
+```bash
+VOICEARM_BACKEND=mlx .venv/bin/python webapp/app.py --share
+```
+
+That prints a `*.gradio.live` URL tunnelled to your machine. Measured over that
+tunnel with MLX on an M5: a Tamil-script instruction planned and executed in
+**4.9 s**, detection error 0.5 cm. The URL lasts about a week and only while the
+process is up, so it is for showing someone now, not for a resume.
+
 **Why `webapp/` exists at all,** when a notebook cell can call `execute()` in
 three lines: browser microphone capture. `sounddevice` needs a local input
 device and a Colab runtime has none, so the voice half of a "voice-controlled
@@ -229,7 +240,7 @@ cloning the full repository.
 ./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
 ./run.sh m4      # open-vocabulary detection + 3D grounding vs ground truth
 ./run.sh m5      # eight Tamil / English / Tanglish commands, end to end
-./run.sh app     # Gradio dashboard, prints a local URL
+./run.sh app     # Gradio dashboard on http://localhost:7860
 
 .venv/bin/python scripts/m6_voice.py             # synthesised Tamil clip
 .venv/bin/python scripts/m6_voice.py --mic       # speak into the microphone
