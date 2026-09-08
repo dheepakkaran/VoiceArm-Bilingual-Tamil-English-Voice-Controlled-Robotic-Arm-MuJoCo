@@ -27,18 +27,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STAGES = {"gradio": ROOT / "build" / "space", "static": ROOT / "build" / "static"}
 
-# Media the static page embeds, copied under media/.
-STATIC_MEDIA = [
-    ("docs/m3_pickplace.mp4", "media/m3_pickplace.mp4"),
-    ("docs/m1_frames.png", "media/m1_frames.png"),
-    ("docs/m4_detections.png", "media/m4_detections.png"),
-    ("docs/scene.png", "media/scene.png"),
-    ("docs/voice_episode.mp4", "media/voice_episode.mp4"),
-]
-STATIC_FILES = [
-    ("hf_space/static/index.html", "index.html"),
-    ("hf_space/static/README.md", "README.md"),
-]
+# docs/ is the single source for the showcase page: GitHub Pages serves it
+# directly from there, and the HF Space gets a copy of the same tree. Keeping one
+# copy means the two surfaces cannot drift apart.
+STATIC_SOURCE = "docs"
 
 # (source, destination) relative to ROOT / STAGE
 FILES = [
@@ -60,14 +52,11 @@ def stage_static() -> Path:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
 
-    for src, dst in STATIC_FILES + STATIC_MEDIA:
-        source = ROOT / src
-        if not source.exists():
-            print(f"  skipping missing {src}")
-            continue
-        target = stage / dst
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+    src = ROOT / STATIC_SOURCE
+    if not (src / "index.html").exists():
+        sys.exit(f"missing {STATIC_SOURCE}/index.html")
+    shutil.copytree(src, stage, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
 
     size = sum(f.stat().st_size for f in stage.rglob("*") if f.is_file())
     n = sum(1 for f in stage.rglob("*") if f.is_file())

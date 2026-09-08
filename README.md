@@ -10,7 +10,7 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 
 > Simulation only. No sim-to-real transfer is claimed.
 
-![scene](docs/scene.png)
+![scene](docs/media/scene.png)
 
 ## Status
 
@@ -64,7 +64,7 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 **M3 — pick and place**, each block grasped from its ground-truth pose and
 dropped in the container:
 
-![pick and place](docs/m3_pickplace.png)
+![pick and place](docs/media/m3_pickplace.png)
 
 | Metric | Value |
 |---|---|
@@ -76,7 +76,7 @@ dropped in the container:
 **M4 — open-vocabulary grounding**, four free-text queries against simulator
 ground truth:
 
-![detections](docs/m4_detections.png)
+![detections](docs/media/m4_detections.png)
 
 | Query | Camera | Score | Error |
 |---|---|---|---|
