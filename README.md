@@ -148,35 +148,33 @@ Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
 ## Live demo
 
-**[huggingface.co/spaces/dheepakkaran/VoiceArm](https://huggingface.co/spaces/dheepakkaran/VoiceArm)** —
-results, benchmarks, and recorded episodes, with buttons that open the live
-pipeline on a free GPU:
-
 **[Run it on Colab](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb)** —
 one click. The notebook clones this repo, installs the portable stack, runs every
-milestone script, and launches the Gradio app with a public share link.
+milestone script, and launches the Gradio app with a public share link on a free
+T4.
 
-Colab is the only runner the page links, because its default T4 is sm_75 and the
-stack works on it unmodified. Kaggle's free tier defaults to a Tesla P100 (sm_60),
+Colab is the only runner linked, because its default T4 is sm_75 and the stack
+works on it unmodified. Kaggle's free tier defaults to a Tesla P100 (sm_60),
 which the installed PyTorch does not support and which bitsandbytes 4-bit cannot
 use at all — and the Kaggle API has no field for the accelerator type, so a
 first-time visitor would have to know to change it in the UI. A demo button that
 fails unless you already know the fix is worse than no button.
 
-**Why the Space is static.** Hosting a Gradio Space needs an HF PRO
-subscription — a free account gets `402 Payment Required` on create — and a free
-GPU session's share link dies with the session. So the permanent link is a static
-page and the live pipeline runs on borrowed GPU. The Gradio app is written and
-tested either way:
+**Page with the videos:** `docs/` is a showcase page served by GitHub Pages —
+results, benchmarks, and the recorded episodes. It exists for one reason worth
+stating: GitHub renders a relative `.mp4` in a README as a link rather than a
+player, so there was nowhere the execution videos actually played. Everything
+else on it is also in this README.
 
-```bash
-python scripts/deploy_space.py --kind static --push USER/VoiceArm   # free
-python scripts/deploy_space.py --kind gradio --push USER/VoiceArm   # needs PRO
-```
+There is no hosted Gradio Space. That needs an HF PRO subscription — a free
+account gets `402 Payment Required` on create — and a free GPU session's share
+link dies with the session, so there is no free path to a permanent live demo.
+The Gradio app is written and tested either way, in `hf_space/`, and
+`scripts/deploy_space.py --push USER/SPACE` will publish it if that changes.
 
 `scripts/bench_planner.py` compares planner models on the eight reference
 utterances. It is the way to settle whether `sarvam-m` (24B) would plan better
-than the shipped Qwen3-4B -- that model was rejected purely because 13 GB at
+than the shipped Qwen3-4B — that model was rejected purely because 13 GB at
 4-bit will not co-reside with two ASR models and a detector on 16 GB. It wants a
 24 GB GPU, which this project has not had access to, so the README's claim stays
 what it is: a footprint decision, not a measured one.
@@ -327,7 +325,7 @@ src/episodes.py     LeRobot-compatible parquet logging
 src/video.py        mp4 encoding and contact-sheet helpers
 src/backend.py      MLX-or-transformers selection and model id resolution
 hf_space/           Gradio app, requirements, and apt packages for Spaces
-hf_space/static/    the free static showcase page
+docs/               showcase page served by GitHub Pages, plus its media
 notebooks/          Colab notebook for the full pipeline, plus the planner ablation
 scripts/bench_planner.py  planner model comparison on the 8 reference utterances
 app.py              Streamlit dashboard

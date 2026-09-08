@@ -1,26 +1,12 @@
----
-title: VoiceArm
-emoji: 🦾
-colorFrom: indigo
-colorTo: red
-sdk: static
-app_file: index.html
-pinned: false
-license: apache-2.0
-short_description: Tamil/English voice-controlled robot arm in MuJoCo
----
+# docs/
 
-# VoiceArm
+The project's showcase page, served by GitHub Pages from this directory.
 
-Code-switched speech grounding for open-vocabulary robotic manipulation.
+`index.html` is the whole page and `media/` holds everything it embeds. This is
+the single source: adding a figure means dropping a file in `media/` and
+referencing it, with no build step and nothing to keep in sync elsewhere.
 
-This page is the permanent entry point: results, benchmarks, and recorded
-episodes. The live pipeline runs on a free Colab or Kaggle GPU — the buttons on
-the page open a notebook that clones the repo, installs the stack, and launches
-the Gradio app with a public share link.
+The page exists because GitHub renders a relative `.mp4` in a README as a link
+rather than a player, so there was nowhere the execution videos actually played.
 
-A hosted Gradio Space needs a paid tier, and a free GPU session's share link
-dies with the session, so the permanent link is static by design. The Gradio app
-itself is written and tested and lives in `hf_space/` in the source repo.
-
-Source: <https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo>
+Enable it under Settings, Pages, Deploy from a branch, `main` / `/docs`.

@@ -1,21 +1,16 @@
-"""Assemble a Hugging Face Space directory from this repo.
+"""Assemble a Gradio Hugging Face Space directory from this repo.
 
-Two kinds of Space, because hosting a Gradio Space needs a paid tier while a
-static one is free:
+    python scripts/deploy_space.py
+    python scripts/deploy_space.py --push USER/SPACE
 
-    --kind static   a showcase page: results, benchmarks, recorded episodes,
-                    and buttons that open the live notebook on Colab or Kaggle
-    --kind gradio   the live app; requires HF PRO to actually run
+Stages a self-contained tree rather than pushing the repo as-is, because Gradio
+Spaces need `app.py` at the root and the vendored Panda assets are gitignored
+here. Pushing is a separate step so the staged tree can be inspected first, and
+needs a token with write access.
 
-Either way this stages a self-contained tree rather than pushing the repo as-is,
-because Spaces need their entry point at the root and the vendored Panda assets
-are gitignored here.
-
-    python scripts/deploy_space.py --kind static
-    python scripts/deploy_space.py --kind static --push USER/SPACE
-
-Pushing needs a token with write access, kept a separate step so the staged tree
-can be inspected first.
+Note that hosting a Gradio Space requires an HF PRO subscription -- a free
+account gets 402 on create. The showcase page that used to be staged here as a
+free static Space now lives in docs/ and is served by GitHub Pages instead.
 """
 from __future__ import annotations
 
@@ -25,12 +20,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STAGES = {"gradio": ROOT / "build" / "space", "static": ROOT / "build" / "static"}
-
-# docs/ is the single source for the showcase page: GitHub Pages serves it
-# directly from there, and the HF Space gets a copy of the same tree. Keeping one
-# copy means the two surfaces cannot drift apart.
-STATIC_SOURCE = "docs"
+STAGE = ROOT / "build" / "space"
 
 # (source, destination) relative to ROOT / STAGE
 FILES = [
@@ -46,26 +36,7 @@ TREES = [
 ]
 
 
-def stage_static() -> Path:
-    stage = STAGES["static"]
-    if stage.exists():
-        shutil.rmtree(stage)
-    stage.mkdir(parents=True)
-
-    src = ROOT / STATIC_SOURCE
-    if not (src / "index.html").exists():
-        sys.exit(f"missing {STATIC_SOURCE}/index.html")
-    shutil.copytree(src, stage, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
-
-    size = sum(f.stat().st_size for f in stage.rglob("*") if f.is_file())
-    n = sum(1 for f in stage.rglob("*") if f.is_file())
-    print(f"staged {n} files, {size / 1e6:.1f} MB -> {stage}")
-    return stage
-
-
-def stage_gradio() -> Path:
-    STAGE = STAGES["gradio"]
+def stage() -> Path:
     if STAGE.exists():
         shutil.rmtree(STAGE)
     STAGE.mkdir(parents=True)
@@ -95,29 +66,26 @@ def stage_gradio() -> Path:
     return STAGE
 
 
-def push(repo_id: str, kind: str, stage: Path) -> None:
+def push(repo_id: str) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi()
-    api.create_repo(repo_id, repo_type="space", space_sdk=kind, exist_ok=True)
-    api.upload_folder(folder_path=str(stage), repo_id=repo_id, repo_type="space")
+    api.create_repo(repo_id, repo_type="space", space_sdk="gradio", exist_ok=True)
+    api.upload_folder(folder_path=str(STAGE), repo_id=repo_id, repo_type="space")
     print(f"pushed -> https://huggingface.co/spaces/{repo_id}")
-    if kind == "gradio":
-        print("Now set the hardware to ZeroGPU in the Space settings.")
-        print("Note: hosting a Gradio Space requires an HF PRO subscription.")
+    print("Set the hardware to ZeroGPU in the Space settings.")
+    print("This needs an HF PRO subscription; a free account gets 402 on create.")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kind", choices=["static", "gradio"], default="static",
-                    help="static showcase page (free) or the live Gradio app (needs PRO)")
     ap.add_argument("--push", metavar="USER/SPACE",
                     help="upload the staged tree to this Space")
     args = ap.parse_args()
 
-    stage = stage_static() if args.kind == "static" else stage_gradio()
+    stage()
     if args.push:
-        push(args.push, args.kind, stage)
+        push(args.push)
     return 0
 
 
