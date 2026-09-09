@@ -12,37 +12,83 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 
 ![scene](docs/media/scene.png)
 
-## Status
+## Three ways to use it
 
-| Milestone | Scope | State |
-|---|---|---|
-| **M0** | Environment, dependencies, Panda assets | ✅ done |
-| **M1** | Scene, arm actuation, offscreen rendering | ✅ done |
-| **M2** | Forward + inverse kinematics | ✅ done |
-| **M3** | Grasp primitives (pick & place) | ✅ done |
-| **M4** | Open-vocabulary perception (OWLv2 + depth) | ✅ done |
-| **M5** | Local LLM task planner | ✅ done |
-| **M6** | Dual-ASR Tamil/English speech router | ✅ done |
-| **M7** | Episode logging + web dashboard | ✅ done |
+Each path exists for a different reason. Nothing is duplicated between them.
+
+**1. Read it — permanent, nothing to install**
+
+This README has every number, and [`docs/`](docs/) is a page served by GitHub
+Pages where the execution videos actually play. That page exists for exactly one
+reason: GitHub renders a relative `.mp4` in a README as a link, not a player.
+Everything else on it is also here.
+
+**2. Run it yourself — free GPU, one click**
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb)
+
+[`notebooks/voicearm_demo.ipynb`](notebooks/voicearm_demo.ipynb) clones this
+repo, installs the portable stack, runs every milestone script, and launches the
+Gradio app with a public share link. About 30-60 s per command on a free T4.
+
+Colab is the only runner linked. Kaggle's free tier defaults to a Tesla P100
+(sm_60) — below what the installed PyTorch supports and below the sm_75 that
+bitsandbytes 4-bit needs — and its API has no field for the accelerator type, so
+a first-time visitor would have to know to change it in the UI. A demo button
+that fails unless you already know the fix is worse than no button.
+
+**3. Develop on it — fastest, needs the repo**
+
+```bash
+./setup.sh
+./run.sh m1        # each milestone script is the evidence for a README number
+./run.sh test      # 29 smoke tests
+./run.sh app       # Gradio app on localhost:7860
+```
+
+On Apple Silicon this runs through MLX at about **4.9 s** per command, against
+30-60 s on a Colab T4. Add `--share` for a public `*.gradio.live` URL tunnelled
+to your machine — good for showing someone right now, not for a link you publish,
+since it dies when the process does.
+
+There is no hosted interactive demo, because there is no free way to have one: a
+hosted Gradio app needs a paid tier, and a free GPU session's share link dies
+with the session. The app is the same file in all three paths —
+[`webapp/app.py`](webapp/app.py).
+
+## Scope
+
+| Stage | What it covers |
+|---|---|
+| Scene and actuation | Franka Panda on a table, three blocks, a container, offscreen rendering |
+| Kinematics | Forward, and position/6-DoF inverse via damped least squares |
+| Grasping | Top-down pick and place from Cartesian waypoints |
+| Perception | Open-vocabulary detection and 3D grounding from RGB-D |
+| Planning | Local LLM, free-text object targets, deterministic fallback |
+| Speech | Dual-ASR router over Tamil, English and code-switched input |
+| Logging | Per-episode parquet in a LeRobot-compatible layout, plus the web app |
 
 ## Pipeline
 
 ```
-  mic ──► Whisper large-v3 (MLX) ──┐
-                                   ├─► script-based router ──► cleaned utterance
-          whisper-tamil-medium ────┘
-                                            │
-                                            ▼
-                                   Qwen3-8B-4bit planner
-                                            │  JSON task plan
-                                            ▼
-   topcam RGB+depth ──► OWL-ViT ──► 3D grounding ──► IK ──► MuJoCo execution
-                                                              │
-                                                              ▼
-                                                   episode log ──► dashboard
+  mic ──► whisper-large-v3 ─────┐
+                                ├─► script + language router ──► transcript
+          whisper-tamil-medium ─┘                                    │
+                                                                     ▼
+                                                        Qwen3-4B planner (local)
+                                                                     │  JSON plan
+                                                                     ▼
+  topcam RGB+depth ──► OWLv2 ──► 3D grounding ──► damped-least-squares IK
+                                                                     │
+                                                                     ▼
+                                                MuJoCo execution ──► episode log
 ```
 
-## Results so far
+The `target` the planner emits is free text — `"a red cube"` — and goes straight
+to the detector as a query. There is no fixed object vocabulary anywhere in the
+system.
+
+## Results
 
 **M1 — arm actuation** (`out/m1_frames.png`)
 
@@ -146,54 +192,17 @@ into *"Put the red cube in the bowl."*, which planned and executed successfully.
 
 Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
-## Live demo
+## Why `webapp/` exists
 
-**[Run it on Colab](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb)** —
-one click. The notebook clones this repo, installs the portable stack, runs every
-milestone script, and launches the Gradio app with a public share link on a free
-T4.
+A notebook cell could call `execute()` in three lines, so a whole Gradio app
+needs justifying: **browser microphone capture.** `sounddevice` needs a local
+input device and a Colab runtime has none, so the voice half of a
+"voice-controlled arm" would be unreachable in the only demo a visitor can
+actually run. It also sidesteps the input-volume trap that made the first local
+microphone test silently record nothing — see the design notes.
 
-Colab is the only runner linked, because its default T4 is sm_75 and the stack
-works on it unmodified. Kaggle's free tier defaults to a Tesla P100 (sm_60),
-which the installed PyTorch does not support and which bitsandbytes 4-bit cannot
-use at all — and the Kaggle API has no field for the accelerator type, so a
-first-time visitor would have to know to change it in the UI. A demo button that
-fails unless you already know the fix is worse than no button.
-
-**Page with the videos:** `docs/` is a showcase page served by GitHub Pages —
-results, benchmarks, and the recorded episodes. It exists for one reason worth
-stating: GitHub renders a relative `.mp4` in a README as a link rather than a
-player, so there was nowhere the execution videos actually played. Everything
-else on it is also in this README.
-
-**There is no permanently hosted interactive demo,** because there is no free way
-to have one: a hosted Gradio app needs a paid tier, and a free GPU session's
-share link dies with the session. The notebook is the interactive path.
-
-For a link someone else can open while your machine is running:
-
-```bash
-VOICEARM_BACKEND=mlx .venv/bin/python webapp/app.py --share
-```
-
-That prints a `*.gradio.live` URL tunnelled to your machine. Measured over that
-tunnel with MLX on an M5: a Tamil-script instruction planned and executed in
-**4.9 s**, detection error 0.5 cm. The URL lasts about a week and only while the
-process is up, so it is for showing someone now, not for a resume.
-
-**Why `webapp/` exists at all,** when a notebook cell can call `execute()` in
-three lines: browser microphone capture. `sounddevice` needs a local input
-device and a Colab runtime has none, so the voice half of a "voice-controlled
-arm" would be unreachable in the only runnable demo. It also sidesteps the
-input-volume trap that made the first local microphone test silently record
-nothing.
-
-`scripts/bench_planner.py` compares planner models on the eight reference
-utterances, and is how the `sarvam-m` question would be settled. That 24B model
-was rejected purely because 13 GB at 4-bit will not co-reside with two ASR
-models and a detector on 16 GB — it needs a 24 GB GPU, which this project has
-not had. So the claim stays what it is: a footprint decision, not a measured
-one.
+The same file serves all three paths: `localhost` for development, `--share` for
+a tunnelled URL, and the notebook's launch cell on Colab.
 
 ## Running on two backends
 
@@ -224,7 +233,8 @@ representative of ZeroGPU, which runs an H200.
 ## Setup
 
 ```bash
-git clone <this repo> && cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
+git clone https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo.git
+cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
 ./setup.sh
 ```
 
@@ -329,38 +339,49 @@ to no new contacts, giving perception an unoccluded view.
 ## Layout
 
 ```
+src/__init__.py     picks MUJOCO_GL before anything imports mujoco
+src/backend.py      MLX-or-transformers selection and model id resolution
 src/config.py       paths, model ids, tuning constants
-src/sim.py          SimEnv — model build, actuation, rendering
+src/sim.py          SimEnv -- model build, actuation, rendering, frame capture
 src/kinematics.py   FK, damped-least-squares IK (3- and 6-DoF), interpolation
 src/grasp.py        top-down pick / place primitives from Cartesian waypoints
 src/perception.py   RGB-D capture, OWLv2 detection, pinhole 3D grounding
 src/planner.py      local Qwen3 planner + deterministic Tamil regex fallback
-src/speech.py       dual-ASR script router and transcript cleanup
+src/speech.py       dual-ASR language router, endpointing, transcript cleanup
 src/executor.py     utterance -> plan -> perception -> motion -> episode
 src/episodes.py     LeRobot-compatible parquet logging
 src/video.py        mp4 encoding and contact-sheet helpers
-src/backend.py      MLX-or-transformers selection and model id resolution
-webapp/           Gradio app, requirements, and apt packages for Spaces
-docs/               showcase page served by GitHub Pages, plus its media
-notebooks/          Colab notebook that runs the whole pipeline on a free GPU
-scripts/bench_planner.py  planner model comparison on the 8 reference utterances
+src/memory.py       allocator cache clears at stage boundaries
+
 assets/scene.xml    table, three blocks, container, overhead camera
-scripts/m*.py       one runnable acceptance demo per milestone
-tests/test_smoke.py smoke suite
+webapp/app.py       the Gradio app -- local, --share, and Colab all use this
+webapp/requirements.txt   the portable (non-MLX) dependency set
+docs/               GitHub Pages showcase page and its media
+notebooks/          Colab notebook that runs the whole pipeline on a free GPU
+tests/test_smoke.py 29 smoke tests
+
+scripts/m1..m6      one runnable acceptance demo per milestone
+scripts/bench_asr.py      character error rate for both ASR backends
+scripts/bench_planner.py  planner comparison on the 8 reference utterances
+scripts/build_notebooks.py  generates notebooks/, validating every code cell
 ```
 
 ## Stack
 
-| Layer | Choice |
-|---|---|
-| Physics | MuJoCo 3.12 |
-| Robot | Franka Emika Panda (`mujoco_menagerie`) |
-| IK | Damped least squares (`mink` optional) |
-| Perception | OWLv2 (`google/owlv2-base-patch16-ensemble`) |
-| Planner | `mlx-community/Qwen3-8B-4bit` via `mlx-lm` |
-| ASR | `mlx-community/whisper-large-v3-mlx` + `vasista22/whisper-tamil-medium` |
-| Episodes | LeRobot-compatible parquet (pyarrow, not the `lerobot` package) |
-| UI | Gradio |
+| Layer | Apple Silicon (MLX) | x86 + NVIDIA (transformers) |
+|---|---|---|
+| Physics | MuJoCo 3.12 | MuJoCo 3.12, `MUJOCO_GL=egl` |
+| Robot | Franka Emika Panda (`mujoco_menagerie`) | same |
+| IK | Damped least squares (`mink` optional) | same |
+| Perception | `google/owlv2-base-patch16-ensemble` | same |
+| Planner | `mlx-community/Qwen3-4B-4bit` | `Qwen/Qwen3-4B-Instruct-2507` |
+| Multilingual ASR | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
+| Tamil ASR | `vasista22/whisper-tamil-medium` | same |
+| Episodes | LeRobot-compatible parquet (pyarrow, not the `lerobot` package) | same |
+| UI | Gradio | same |
+
+`src/backend.py` resolves the two columns at import time. Everything above the
+model-loading layer is shared code.
 
 ## Model selection
 
