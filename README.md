@@ -133,7 +133,7 @@ ground truth:
 
 **4 / 4 within 3 cm**, mean error **0.66 cm**.
 
-**M5 — local LLM planner**, `Qwen3-8B-4bit` via MLX, no cloud API:
+**M5 — local LLM planner**, `Qwen3-4B-4bit` via MLX, no cloud API:
 
 | Language | Utterances | Executed |
 |---|---|---|
@@ -142,8 +142,10 @@ ground truth:
 | Tamil script | 3 | 3 |
 | **Total** | **8** | **8** |
 
-Median plan latency **1.86 s** (first call 10.4 s, cold cache). Every one of the
-eight was planned by the LLM; the regex fallback was not needed.
+Median plan latency **0.87 s** on the shipped 4B (first call is slower, cold
+cache). Every one of the eight was planned by the LLM; the regex fallback was
+not needed. These eight utterances are the fixed set the planner comparison in
+[Model selection](#model-selection) also scores against.
 
 **ASR benchmark** (`./run.sh bench`), 6 Tamil sentences synthesised with the
 macOS `Vani` voice and read from wav files, so room acoustics are out of the
