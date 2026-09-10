@@ -214,8 +214,14 @@ md("""
 Launches the Gradio app with a public share link, valid while this session
 lives. Record yourself in Tamil, English or Tanglish, or type an instruction.
 
+The **Live** panel updates while the arm moves -- the handlers are generators,
+so frames reach the browser as they are rendered rather than only as a video at
+the end. Expect roughly 30-60 s per command on a T4, against about 5 s locally
+on Apple Silicon through MLX. If the live view feels sluggish over the tunnel,
+raise `LIVE_EVERY` in `webapp/app.py`.
+
 The share URL dies when the session ends, which is why the project's permanent
-link is a static page rather than this.
+link is a GitHub Pages page rather than this.
 """),
 code("""
 import importlib.util
@@ -223,12 +229,12 @@ import sys
 
 sys.path.insert(0, ".")
 
-spec = importlib.util.spec_from_file_location("space_app", "webapp/app.py")
-space_app = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(space_app)
+spec = importlib.util.spec_from_file_location("voicearm_app", "webapp/app.py")
+app = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(app)
 
-space_app.warm_models()
-space_app.build().queue(max_size=8).launch(share=True)
+app.warm_models()
+app.build().queue(max_size=8).launch(share=True)
 """),
 md(f"""
 ## 9. Optional: does a Tamil-native 24B planner do better?
