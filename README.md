@@ -10,7 +10,9 @@ controller. Everything runs on-device on Apple Silicon — no cloud API.
 
 > Simulation only. No sim-to-real transfer is claimed.
 
-![scene](docs/media/scene.png)
+![pick and place](docs/media/demo.gif)
+
+*`sivappu block-ah bowl-la vai` — spoken Tanglish, planned and executed in 4.9 s.*
 
 ## Three ways to use it
 
@@ -18,10 +20,10 @@ Each path exists for a different reason. Nothing is duplicated between them.
 
 **1. Read it — permanent, nothing to install**
 
-This README has every number, and [`docs/`](docs/) is a page served by GitHub
-Pages where the execution videos actually play. That page exists for exactly one
-reason: GitHub renders a relative `.mp4` in a README as a link, not a player.
-Everything else on it is also here.
+This README has every number, and the GIF above animates inline. [`docs/`](docs/)
+is a page served by GitHub Pages with the full-resolution videos — GitHub renders
+a relative `.mp4` in a README as a link rather than a player, so a GIF is the
+only format that moves here. Everything on that page is also in this README.
 
 **2. Run it yourself — free GPU, one click**
 
@@ -374,6 +376,7 @@ scripts/m1..m6      one runnable acceptance demo per milestone
 scripts/bench_asr.py      character error rate for both ASR backends
 scripts/bench_planner.py  planner comparison on the 8 reference utterances
 scripts/build_notebooks.py  generates notebooks/, validating every code cell
+scripts/make_gif.py       renders an episode straight to docs/media/demo.gif
 ```
 
 ## Stack

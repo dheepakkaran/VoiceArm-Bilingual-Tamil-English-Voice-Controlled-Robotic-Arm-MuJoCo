@@ -7,13 +7,17 @@ Why a web UI at all, when a notebook cell can call `execute()` in three lines:
   and there is none on a Colab runtime. It also sidesteps the input-volume trap
   that made the first local microphone test record silence.
 * Models load once at import, not per request.
+* The handlers are generators, so the arm is visible while it moves rather than
+  only in a video afterwards.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +43,8 @@ from src.sim import SimEnv  # noqa: E402
 from src.video import write_video  # noqa: E402
 
 log = logging.getLogger("voicearm.webapp")
+
+LIVE_EVERY = 2          # stream every other captured frame
 
 EXAMPLES = [
     ["put the red block in the bowl"],
@@ -66,9 +72,12 @@ def warm_models() -> str:
     return f"{backend.describe()} · models warm in {time.perf_counter() - t0:.0f}s"
 
 
-def run_voice(audio, progress=gr.Progress()) -> tuple:
+def run_voice(audio, progress=gr.Progress()):
+    """Transcribe, then stream the execution. A generator, so Gradio updates live."""
     if audio is None:
-        return None, "", "", "Record something first."
+        yield None, None, "", "Record something first.", ""
+        return
+
     rate, samples = audio
     samples = np.asarray(samples, dtype=np.float32)
     if samples.ndim > 1:
@@ -86,7 +95,8 @@ def run_voice(audio, progress=gr.Progress()) -> tuple:
     try:
         transcript = speech.route(samples)
     except speech.NoSpeechDetected as exc:
-        return None, "", "", f"No speech detected: {exc}"
+        yield None, None, "", f"No speech detected: {exc}", ""
+        return
 
     candidates = "\n".join(
         f"{'* ' if k == transcript.source else '  '}{k}: {v}"
@@ -94,28 +104,62 @@ def run_voice(audio, progress=gr.Progress()) -> tuple:
     )
     progress(0.4, desc="Reading the instruction")
     cleaned = speech.clean_transcript(transcript.text)
-    return (*_execute(cleaned, transcript, progress), candidates)
+
+    for frame, video, plan, status in _execute(cleaned, transcript):
+        yield frame, video, plan, status, candidates
 
 
-def run_text(text: str, progress=gr.Progress()) -> tuple:
+def run_text(text: str, progress=gr.Progress()):
     if not (text or "").strip():
-        return None, "", "", "Type an instruction first."
-    return (*_execute(text.strip(), None, progress), "(text input, ASR skipped)")
+        yield None, None, "", "Type an instruction first.", ""
+        return
+    for frame, video, plan, status in _execute(text.strip(), None):
+        yield frame, video, plan, status, "(text input, ASR skipped)"
 
 
-def _execute(utterance: str, transcript, progress) -> tuple:
+def _execute(utterance: str, transcript):
+    """Run one instruction, yielding (frame, video, plan, status) as it goes.
+
+    `execute()` is synchronous and hands frames to a callback, so it runs on a
+    worker thread and the frames come back through a queue. That is safe because
+    SimEnv already funnels all rendering onto a single GL thread -- the physics
+    and the OpenGL context never move.
+    """
     env = get_env()
     frames: list[np.ndarray] = []
+    stream: queue.Queue = queue.Queue()
+    outcome: dict = {}
 
     def on_frame(frame, index):
         frames.append(frame)
-        if index % 8 == 0:
-            progress(min(0.5 + index / 220, 0.95), desc="Executing")
+        if index % LIVE_EVERY == 0:          # ~10 fps to the browser
+            stream.put(frame)
 
-    progress(0.5, desc="Planning")
-    ep = execute(env, utterance, cleaned=utterance, transcript=transcript,
-                 capture_video=False, on_frame=on_frame)
+    def work():
+        try:
+            outcome["ep"] = execute(env, utterance, cleaned=utterance,
+                                    transcript=transcript, capture_video=False,
+                                    on_frame=on_frame)
+        except Exception as exc:             # surfaced below, not swallowed
+            outcome["error"] = exc
+        finally:
+            stream.put(None)
 
+    worker = threading.Thread(target=work, name="voicearm-execute", daemon=True)
+    worker.start()
+
+    yield None, None, "", "Planning…"
+    while True:
+        frame = stream.get()
+        if frame is None:
+            break
+        yield frame, None, "", "Executing…"
+    worker.join()
+
+    if "error" in outcome:
+        raise gr.Error(f"{type(outcome['error']).__name__}: {outcome['error']}")
+
+    ep = outcome["ep"]
     video_path = None
     if frames:
         out = config.OUT / f"webapp_{ep.episode_id}.mp4"
@@ -127,7 +171,8 @@ def _execute(utterance: str, transcript, progress) -> tuple:
               f"· {ep.duration_s:.1f}s")
     if ep.detect_error_m == ep.detect_error_m:      # not NaN
         status += f" · detection error {ep.detect_error_m * 100:.1f} cm"
-    return video_path, plan, status
+
+    yield frames[-1] if frames else None, video_path, plan, status
 
 
 def build() -> gr.Blocks:
@@ -157,12 +202,17 @@ def build() -> gr.Blocks:
                 asr_box = gr.Textbox(label="ASR candidates (* = router's choice)",
                                      lines=3, interactive=False)
             with gr.Column(scale=3):
-                video = gr.Video(label="Execution", autoplay=True)
+                # Live frames land here as the arm moves; the video appears when
+                # the episode finishes, so the wait is not a blank panel.
+                live = gr.Image(label="Live", type="numpy", height=380,
+                                interactive=False)
+                video = gr.Video(label="Replay", autoplay=True, loop=True)
                 plan_box = gr.Code(label="Task plan", language="json")
                 result = gr.Markdown()
 
-        mic_btn.click(run_voice, [mic], [video, plan_box, result, asr_box])
-        text_btn.click(run_text, [text], [video, plan_box, result, asr_box])
+        outputs = [live, video, plan_box, result, asr_box]
+        mic_btn.click(run_voice, [mic], outputs)
+        text_btn.click(run_text, [text], outputs)
         demo.load(lambda: warm_models(), None, status_md)
     return demo
 
