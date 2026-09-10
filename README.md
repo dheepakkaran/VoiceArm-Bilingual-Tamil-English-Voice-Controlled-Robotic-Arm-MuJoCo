@@ -20,10 +20,10 @@ Each path exists for a different reason. Nothing is duplicated between them.
 
 **1. Read it — permanent, nothing to install**
 
-This README has every number, and the GIF above animates inline. [`docs/`](docs/)
-is a page served by GitHub Pages with the full-resolution videos — GitHub renders
-a relative `.mp4` in a README as a link rather than a player, so a GIF is the
-only format that moves here. Everything on that page is also in this README.
+This README has every number, and the GIF above animates inline. GitHub shows a
+relative `.mp4` as a link rather than a player, so a GIF is the only format that
+moves here; [`docs/media/`](docs/media/) holds the full-resolution renders if you
+want them.
 
 **2. Run it yourself — free GPU, one click**
 
@@ -54,9 +54,12 @@ needs setting. Add `--share` for a public `*.gradio.live` URL tunnelled
 to your machine — good for showing someone right now, not for a link you publish,
 since it dies when the process does.
 
-There is no hosted interactive demo, because there is no free way to have one: a
-hosted Gradio app needs a paid tier, and a free GPU session's share link dies
-with the session. The app is the same file in all three paths —
+There is no hosted demo of either kind. An interactive one has no free path — a
+hosted Gradio app needs a paid tier and a free GPU session's share link dies with
+the session. A static page had one, but once the GIF animated inline its only
+remaining job was playing the videos at higher resolution, and it duplicated nine
+measured numbers from this README. Two sources for the same number is how they go
+stale. The app is the same file in all three paths —
 [`webapp/app.py`](webapp/app.py).
 
 ## Scope
@@ -368,7 +371,7 @@ src/memory.py       allocator cache clears at stage boundaries
 assets/scene.xml    table, three blocks, container, overhead camera
 webapp/app.py       the Gradio app -- local, --share, and Colab all use this
 webapp/requirements.txt   the portable (non-MLX) dependency set
-docs/               GitHub Pages showcase page and its media
+docs/media/         the demo GIF and milestone screenshots the README embeds
 notebooks/          Colab notebook that runs the whole pipeline on a free GPU
 tests/test_smoke.py 29 smoke tests
 
