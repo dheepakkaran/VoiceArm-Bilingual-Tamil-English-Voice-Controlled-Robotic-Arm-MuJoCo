@@ -25,25 +25,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # The rendering backend is chosen in src/__init__.py, which runs before any
 # module imports mujoco -- setting MUJOCO_GL here would be too late on Linux and
 # outright invalid on macOS, where only CGL exists.
-os.environ.setdefault("VOICEARM_BACKEND", "torch")
+#
+# The model backend is deliberately NOT set here. An earlier version forced
+# VOICEARM_BACKEND=torch, written when this file was destined for an x86 Space,
+# and it survived the move: `./run.sh app` on Apple Silicon then took 27.5 s per
+# command through torch instead of 4.9 s through MLX. src/backend.py already
+# picks MLX where it exists and torch everywhere else, which is the right answer
+# in both places.
 
 from src import backend, config, episodes, perception, planner, speech  # noqa: E402
 from src.executor import execute  # noqa: E402
 from src.sim import SimEnv  # noqa: E402
 from src.video import write_video  # noqa: E402
 
-log = logging.getLogger("voicearm.space")
-
-def gpu(*args, **kwargs):
-    """No-op stand-in for a GPU-scheduling decorator.
-
-    Kept as a seam rather than deleted: the functions below are the ones that
-    would need wrapping if this ever ran somewhere that schedules GPU per call.
-    """
-    def wrap(fn):
-        return fn
-    return wrap
-
+log = logging.getLogger("voicearm.webapp")
 
 EXAMPLES = [
     ["put the red block in the bowl"],
@@ -71,7 +66,6 @@ def warm_models() -> str:
     return f"{backend.describe()} · models warm in {time.perf_counter() - t0:.0f}s"
 
 
-@gpu(duration=90)
 def run_voice(audio, progress=gr.Progress()) -> tuple:
     if audio is None:
         return None, "", "", "Record something first."
@@ -103,7 +97,6 @@ def run_voice(audio, progress=gr.Progress()) -> tuple:
     return (*_execute(cleaned, transcript, progress), candidates)
 
 
-@gpu(duration=90)
 def run_text(text: str, progress=gr.Progress()) -> tuple:
     if not (text or "").strip():
         return None, "", "", "Type an instruction first."
@@ -125,7 +118,7 @@ def _execute(utterance: str, transcript, progress) -> tuple:
 
     video_path = None
     if frames:
-        out = config.OUT / f"space_{ep.episode_id}.mp4"
+        out = config.OUT / f"webapp_{ep.episode_id}.mp4"
         if write_video(frames, out):
             video_path = str(out)
 

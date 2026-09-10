@@ -47,7 +47,8 @@ that fails unless you already know the fix is worse than no button.
 ```
 
 On Apple Silicon this runs through MLX at about **4.9 s** per command, against
-30-60 s on a Colab T4. Add `--share` for a public `*.gradio.live` URL tunnelled
+30-60 s on a Colab T4. `src/backend.py` picks that automatically -- nothing
+needs setting. Add `--share` for a public `*.gradio.live` URL tunnelled
 to your machine — good for showing someone right now, not for a link you publish,
 since it dies when the process does.
 
