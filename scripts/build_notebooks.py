@@ -128,7 +128,7 @@ print("project at", PROJ)
 code("""
 # requirements.txt pins the Apple/MLX stack; on an NVIDIA box we want the
 # portable one that the Space uses.
-!pip install -q -r webapp/requirements.txt 2>&1 | tail -3
+!pip install -q -r requirements-colab.txt 2>&1 | tail -3
 print("deps installed")
 """),
 code("""

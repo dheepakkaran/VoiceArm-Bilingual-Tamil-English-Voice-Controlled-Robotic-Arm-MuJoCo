@@ -1,244 +1,48 @@
 # VoiceArm
 
-**Code-Switched Speech Grounding for Open-Vocabulary Robotic Manipulation**
+**Bilingual voice-controlled robot arm in MuJoCo.**
 
-A bilingual (Tamil / English / Tanglish) voice-controlled Franka Panda arm in
-MuJoCo. Spoken instructions are transcribed, converted into a structured task
-plan by a local language model, grounded to 3D object positions with
-open-vocabulary detection, and executed through an inverse-kinematics
-controller. Everything runs on-device on Apple Silicon — no cloud API.
+Say something in Tamil, English, or Tanglish and a simulated Franka Panda does
+it. Speech is transcribed, turned into a task plan by a local language model,
+the named object is found in the camera image, and inverse kinematics executes
+the pick-and-place. Everything runs on-device -- no cloud API.
 
 > Simulation only. No sim-to-real transfer is claimed.
 
 ![pick and place](docs/media/demo.gif)
 
-*`sivappu block-ah bowl-la vai` — spoken Tanglish, planned and executed in 4.9 s.*
+*`sivappu block-ah bowl-la vai` -- spoken Tanglish, planned and executed in 4.9 s.*
 
-## Three ways to use it
+## How it works
 
-Each path exists for a different reason. Nothing is duplicated between them.
+```
+  mic --> whisper-large-v3 -----+
+                                +--> language router --> transcript
+          whisper-tamil-medium -+                            |
+                                                             v
+                                                Qwen3-4B planner (local)
+                                                             |  JSON plan
+                                                             v
+  camera RGB+depth --> OWLv2 --> 3D position --> inverse kinematics
+                                                             |
+                                                             v
+                                              MuJoCo execution --> episode log
+```
 
-**1. Read it — permanent, nothing to install**
+The planner outputs plain text like `"a red cube"`, and that string goes
+straight to the detector as a search query -- so there is no fixed list of
+objects anywhere in the code.
 
-This README has every number, and the GIF above animates inline. GitHub shows a
-relative `.mp4` as a link rather than a player, so a GIF is the only format that
-moves here; [`docs/media/`](docs/media/) holds the full-resolution renders if you
-want them.
+## Try it
 
-**2. Run it yourself — free GPU, one click**
+**On a free GPU, one click:**
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb)
 
-[`notebooks/voicearm_demo.ipynb`](notebooks/voicearm_demo.ipynb) clones this
-repo, installs the portable stack, runs every milestone script, and launches the
-Gradio app with a public share link. About 30-60 s per command on a free T4.
+The notebook clones the repo, installs everything, runs each stage, and opens the
+web app with a public link. About 30-60 s per command on a T4.
 
-Colab is the only runner linked. Kaggle's free tier defaults to a Tesla P100
-(sm_60) — below what the installed PyTorch supports and below the sm_75 that
-bitsandbytes 4-bit needs — and its API has no field for the accelerator type, so
-a first-time visitor would have to know to change it in the UI. A demo button
-that fails unless you already know the fix is worse than no button.
-
-**3. Develop on it — fastest, needs the repo**
-
-```bash
-./setup.sh
-./run.sh m1        # each milestone script is the evidence for a README number
-./run.sh test      # 29 smoke tests
-./run.sh app       # Gradio app on localhost:7860
-```
-
-On Apple Silicon this runs through MLX at about **4.9 s** per command, against
-30-60 s on a Colab T4. `src/backend.py` picks that automatically -- nothing
-needs setting. Add `--share` for a public `*.gradio.live` URL tunnelled
-to your machine — good for showing someone right now, not for a link you publish,
-since it dies when the process does.
-
-There is no hosted demo of either kind. An interactive one has no free path — a
-hosted Gradio app needs a paid tier and a free GPU session's share link dies with
-the session. A static page had one, but once the GIF animated inline its only
-remaining job was playing the videos at higher resolution, and it duplicated nine
-measured numbers from this README. Two sources for the same number is how they go
-stale. The app is the same file in all three paths —
-[`webapp/app.py`](webapp/app.py).
-
-## Scope
-
-| Stage | What it covers |
-|---|---|
-| Scene and actuation | Franka Panda on a table, three blocks, a container, offscreen rendering |
-| Kinematics | Forward, and position/6-DoF inverse via damped least squares |
-| Grasping | Top-down pick and place from Cartesian waypoints |
-| Perception | Open-vocabulary detection and 3D grounding from RGB-D |
-| Planning | Local LLM, free-text object targets, deterministic fallback |
-| Speech | Dual-ASR router over Tamil, English and code-switched input |
-| Logging | Per-episode parquet in a LeRobot-compatible layout, plus the web app |
-
-## Pipeline
-
-```
-  mic ──► whisper-large-v3 ─────┐
-                                ├─► script + language router ──► transcript
-          whisper-tamil-medium ─┘                                    │
-                                                                     ▼
-                                                        Qwen3-4B planner (local)
-                                                                     │  JSON plan
-                                                                     ▼
-  topcam RGB+depth ──► OWLv2 ──► 3D grounding ──► damped-least-squares IK
-                                                                     │
-                                                                     ▼
-                                                MuJoCo execution ──► episode log
-```
-
-The `target` the planner emits is free text — `"a red cube"` — and goes straight
-to the detector as a query. There is no fixed object vocabulary anywhere in the
-system.
-
-## Results
-
-**M1 — arm actuation** (`out/m1_frames.png`)
-
-| Pose | Commanded → reached (max joint error) | Gripper displacement |
-|---|---|---|
-| home | 0.0066 rad | — |
-| swing_left | 0.0066 rad | 0.380 m |
-| lift_up | 0.0043 rad | 0.459 m |
-
-**M2 — inverse kinematics**, 10 random reachable targets, damped least squares:
-
-| Metric | Value |
-|---|---|
-| Targets within 5 mm | **10 / 10** |
-| Mean position error | **0.44 mm** |
-| Max position error | 1.79 mm |
-| Mean solve time | **0.1 ms** |
-
-**M3 — pick and place**, each block grasped from its ground-truth pose and
-dropped in the container:
-
-![pick and place](docs/media/m3_pickplace.png)
-
-| Metric | Value |
-|---|---|
-| Blocks placed in the container | **3 / 3** |
-| Lift height on grasp | 0.146 m (all three) |
-| Mean final offset from container centre | **1.7 mm** |
-| Grasp strategy | friction only — no weld constraint needed |
-
-**M4 — open-vocabulary grounding**, four free-text queries against simulator
-ground truth:
-
-![detections](docs/media/m4_detections.png)
-
-| Query | Camera | Score | Error |
-|---|---|---|---|
-| "a red cube" | topcam | 0.58 | 0.5 cm |
-| "a green cube" | topcam | 0.56 | 0.2 cm |
-| "a blue cube" | topcam | 0.65 | 0.5 cm |
-| "a white bowl" | perceptcam | 0.21 | 1.5 cm |
-
-**4 / 4 within 3 cm**, mean error **0.66 cm**.
-
-**M5 — local LLM planner**, `Qwen3-4B-4bit` via MLX, no cloud API:
-
-| Language | Utterances | Executed |
-|---|---|---|
-| English | 2 | 2 |
-| Tanglish (romanized) | 3 | 3 |
-| Tamil script | 3 | 3 |
-| **Total** | **8** | **8** |
-
-Median plan latency **0.87 s** on the shipped 4B (first call is slower, cold
-cache). Every one of the eight was planned by the LLM; the regex fallback was
-not needed. These eight utterances are the fixed set the planner comparison in
-[Model selection](#model-selection) also scores against.
-
-**ASR benchmark** (`./run.sh bench`), 6 Tamil sentences synthesised with the
-macOS `Vani` voice and read from wav files, so room acoustics are out of the
-loop. Character error rate against the reference text:
-
-| backend | mean CER | median CER |
-|---|---|---|
-| whisper-large-v3 (multilingual) | 16.7% | **0.0%** |
-| whisper-tamil-medium (specialist) | **4.8%** | **0.0%** |
-| routed — what ships | **4.8%** | **0.0%** |
-
-The mean and the median tell different stories, and the median is the honest
-one: the multilingual model is exact on 5 of 6 sentences and then decodes the
-sixth into Devanagari at 100% CER. Its problem is not steady inaccuracy, it is
-rare total failure. The specialist never failed that way; its non-zero scores
-are sandhi spellings (`நீலக்` for `நீல`), which are orthographic conventions
-rather than recognition errors. The router picked the specialist 6/6.
-
-These are synthetic voices. Synthetic speech is markedly easier than human
-speech, so treat these as a floor on error, not an estimate of real accuracy.
-
-**M6 — dual-ASR router.** Tamil audio, both backends transcribed correctly and
-the router picked the specialist:
-
-| Model | Transcript |
-|---|---|
-| whisper-large-v3 (MLX) | சிவப்பு கட்டையை கிண்ணத்தில் வை. |
-| whisper-tamil-medium | சிவப்பு கட்டையை கிண்ணத்தில் வை ← chosen |
-
-Detected language `ta`, Tamil script ratio 1.00. The cleanup pass turned that
-into *"Put the red cube in the bowl."*, which planned and executed successfully.
-
-> The M6 clip is macOS `say -v Vani` synthesis, not a human recording, and the
-> script says so at runtime. Real-speaker accuracy — especially on Tanglish — is
-> untested and should be assumed worse.
-
-**M7 — aggregate over the 9 logged episodes** (8 typed + 1 spoken):
-
-| Metric | Value |
-|---|---|
-| Success rate | **9 / 9** |
-| Mean detection error | **0.37 cm** (max 0.50 cm) |
-| Mean episode duration | 5.6 s |
-| Median LLM latency | 1.86 s |
-| Warm ASR latency | 13–20 s |
-
-Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
-
-## Why `webapp/` exists
-
-A notebook cell could call `execute()` in three lines, so a whole Gradio app
-needs justifying: **browser microphone capture.** `sounddevice` needs a local
-input device and a Colab runtime has none, so the voice half of a
-"voice-controlled arm" would be unreachable in the only demo a visitor can
-actually run. It also sidesteps the input-volume trap that made the first local
-microphone test silently record nothing — see the design notes.
-
-The same file serves all three paths: `localhost` for development, `--share` for
-a tunnelled URL, and the notebook's launch cell on Colab.
-
-## Running on two backends
-
-The same code runs on Apple Silicon through MLX and on Spaces through
-transformers. `src/backend.py` picks at import time and resolves the model ids:
-
-| | local (Apple Silicon) | Spaces (x86 + NVIDIA) |
-|---|---|---|
-| planner | `mlx-community/Qwen3-4B-4bit` | `Qwen/Qwen3-4B-Instruct-2507` |
-| multilingual ASR | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
-| Tamil ASR | `vasista22/whisper-tamil-medium` | same |
-| detector | `google/owlv2-base-patch16-ensemble` | same |
-| rendering | CGL (macOS default) | `MUJOCO_GL=egl` |
-
-Everything above the model-loading layer is shared: the router, the planner
-prompt, IK, grasp waypoints, 3D grounding, episode logging.
-
-Force the portable path on a Mac to test the Spaces code without deploying:
-
-```bash
-VOICEARM_BACKEND=torch ./run.sh m5
-```
-
-Measured on this machine, same command end to end: **7.0 s** on MLX,
-**27.5 s** on the transformers path over MPS. The transformers numbers are not
-representative of ZeroGPU, which runs an H200.
-
-## Setup
+**Locally:**
 
 ```bash
 git clone https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo.git
@@ -246,219 +50,55 @@ cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
 ./setup.sh
 ```
 
-`setup.sh` creates `.venv`, installs `requirements.txt`, and downloads only the
-`franka_emika_panda` directory from `mujoco_menagerie` (36 MB) rather than
-cloning the full repository.
-
-`requirements.txt` is hand-maintained rather than a `pip freeze` dump, and lists
-only what the code imports. The frozen version it replaced pinned about ninety
-transitive packages, still pinned Streamlit's dependency tree long after that UI
-was removed, and omitted `gradio` -- which `./run.sh app` needs -- so a clean
-install could not launch the app. `webapp/requirements.txt` is the separate
-portable set the Colab notebook installs.
-
-## Running
-
 ```bash
-./run.sh m1      # three-pose actuation demo, writes out/m1_frames.png
-./run.sh m2      # IK accuracy table over 10 random targets
-./run.sh m3      # pick and place all three blocks, writes out/m3_pickplace.mp4
-./run.sh m4      # open-vocabulary detection + 3D grounding vs ground truth
-./run.sh m5      # eight Tamil / English / Tanglish commands, end to end
-./run.sh app     # Gradio dashboard on http://localhost:7860
-
-.venv/bin/python scripts/m6_voice.py             # synthesised Tamil clip
-.venv/bin/python scripts/m6_voice.py --mic       # speak into the microphone
-.venv/bin/python scripts/m6_voice.py --wav f.wav # your own recording
-./run.sh test    # pytest smoke suite
+./run.sh app     # web app on localhost:7860
+./run.sh m3      # watch it pick and place
+./run.sh test    # 29 tests
 ```
 
-## Design notes
+`setup.sh` builds a virtualenv and downloads only the Franka Panda from
+`mujoco_menagerie` (36 MB) instead of cloning the whole thing. On Apple Silicon
+the models run through MLX at about 4.9 s per command; `src/backend.py` picks
+that automatically.
 
-**The grasp site and wrist camera are injected with `MjSpec`.** The vendored
-Panda model has no end-effector site, and MJCF `<include>` cannot add children
-to a body defined inside the included file. `src/sim.py` loads the scene as a
-spec, adds a `grasp_site` at the Panda TCP (0.1034 m along `+z` of the `hand`
-frame) plus a wrist camera, then compiles. The vendored asset stays untouched.
+Add `--share` to the app for a public `*.gradio.live` link tunnelled to your
+machine, which lasts while the process is up.
 
-**Grasping needed 6-DoF IK, not position-only.** The Panda's fingers slide along
-the hand frame's *y* axis, so a top-down grasp has to constrain orientation as
-well as position. `ik()` stacks the positional and rotational site Jacobians and
-solves both together; `GRASP_DOWN_MAT` points the site *z* axis at the table and
-aligns the finger-separation axis with world *y*.
+## Results
 
-**Transit waypoints use a looser tolerance than the grasp.** Near the edge of the
-workspace the 2 mm grasp tolerance is unreachable for approach and lift poses,
-which made `place()` fail on a target that was in fact fine to reach. Approach
-and lift now solve to 6 mm; only the grasp waypoint holds 2 mm.
+| | |
+|---|---|
+| Inverse kinematics | 10/10 random targets within 5 mm (mean 0.44 mm) |
+| Pick and place | 3/3 blocks placed, 1.7 mm from the container centre |
+| Object localization | 4/4 within 3 cm, mean 0.66 cm |
+| Commands executed | 8/8 across English, Tanglish and Tamil script |
+| Tamil transcription | 4.8% character error rate, 0% median |
+| Latency, warm | 7.3 s end to end on an M5 |
 
-**Perception uses a camera cascade, not a per-object rule.** Straight down, a
-bowl is only a white ring and OWLv2 scored nothing against any bowl-like query;
-from an angle it scores 0.29. Cubes ground far more accurately from overhead
-(0.2–0.5 cm vs 1.4–2.0 cm) because their top face is what the depth sample hits.
-`locate()` therefore tries `topcam` first and falls back to the angled
-`perceptcam`, taking the first confident detection. Nothing in that path knows
-which objects need which view, so an unseen noun gets the same benefit.
+Full tables, the ASR comparison, and what broke along the way are in
+[NOTES.md](NOTES.md).
 
-**Depth lands on the top face, not the centre.** An overhead view only ever sees
-an object's top surface, so the deprojected point sits half an object-height too
-high. For anything resting on the table the centre is the midpoint between that
-surface and the tabletop — which needs no prior knowledge of the object's size.
-
-**The bowl is a ring of 16 boxes with quaternion rotations.** MuJoCo takes its
-angle unit from the compiler, and the vendored `panda.xml` sets
-`angle="radian"`; degree-valued `euler` attributes were silently reinterpreted
-and produced a starburst instead of a bowl.
-
-**The dashboard streams the motion live rather than only replaying it.**
-`SimEnv.start_recording` takes an `on_frame` callback invoked as each frame is
-captured, so the UI can push frames into a placeholder while the
-episode is still running; the same frames are then encoded to mp4 per episode
-for replay. A pick-and-place streams 176 frames over roughly 9 seconds.
-
-**All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
-owns an OpenGL context bound to its creating thread, and a web framework calls in
-from a different worker thread per request. and on macOS both reusing a
-context across threads *and* creating a second one from another thread deadlock
-rather than raise — the dashboard hung silently on its first command. `SimEnv`
-now owns a single-worker executor; every render is submitted to it and the
-caller blocks on the result.
-
-**The planner prompt carries a romanized-Tamil glossary.** Qwen3 reads Tamil
-script well but did not know `sivappu` means red — it planned a pick on the bowl
-for *"sivappu block-ah bowl-la vai"*. Adding a short colour/verb glossary and two
-Tanglish examples to the system prompt took that case from wrong to correct, and
-all 8 M5 utterances now plan through the LLM.
-
-**Transit waypoints degrade instead of aborting.** Perception put the container
-5 mm further out than ground truth, which pushed the approach waypoint just past
-the top-down workspace and failed the whole episode at 9.2 mm of IK error. Place
-approaches are lower than lift approaches now, and a transit waypoint that
-stalls within 2 cm is accepted rather than raised — precision there buys nothing.
-
-**IK is damped least squares on the site Jacobian.** `mink` is used when it is
-installed; the built-in solver is the default path and is what the numbers above
-were measured with. Step size is clamped and joint limits are enforced each
-iteration, so the solver stays stable near singularities.
-
-**The overhead camera is rotated, not just raised.** `topcam` uses
-`xyaxes="0 1 0 -1 0 0"` so the image's wide axis covers the table's wide axis
-(world *y*). At a fixed height this fits the whole worktop in frame, which
-matters for M4 detection.
-
-**`SimEnv.park()` exists because the arm occludes the worktop.** At the home
-pose the Panda sits directly under the overhead camera. `park()` retracts it
-behind the base (gripper at x ≈ −0.33 m), found with a joint sweep constrained
-to no new contacts, giving perception an unoccluded view.
-
-## Layout
+## What is in here
 
 ```
-src/__init__.py     picks MUJOCO_GL before anything imports mujoco
-src/backend.py      MLX-or-transformers selection and model id resolution
-src/config.py       paths, model ids, tuning constants
-src/sim.py          SimEnv -- model build, actuation, rendering, frame capture
-src/kinematics.py   FK, damped-least-squares IK (3- and 6-DoF), interpolation
-src/grasp.py        top-down pick / place primitives from Cartesian waypoints
-src/perception.py   RGB-D capture, OWLv2 detection, pinhole 3D grounding
-src/planner.py      local Qwen3 planner + deterministic Tamil regex fallback
-src/speech.py       dual-ASR language router, endpointing, transcript cleanup
-src/executor.py     utterance -> plan -> perception -> motion -> episode
-src/episodes.py     LeRobot-compatible parquet logging
-src/video.py        mp4 encoding and contact-sheet helpers
-src/memory.py       allocator cache clears at stage boundaries
-
-assets/scene.xml    table, three blocks, container, overhead camera
-webapp/app.py       the Gradio app -- local, --share, and Colab all use this
-webapp/requirements.txt   the portable (non-MLX) dependency set
-docs/media/         the demo GIF and milestone screenshots the README embeds
-notebooks/          Colab notebook that runs the whole pipeline on a free GPU
-tests/test_smoke.py 29 smoke tests
-
-scripts/m1..m6      one runnable acceptance demo per milestone
-scripts/bench_asr.py      character error rate for both ASR backends
-scripts/bench_planner.py  planner comparison on the 8 reference utterances
-scripts/build_notebooks.py  generates notebooks/, validating every code cell
-scripts/make_gif.py       renders an episode straight to docs/media/demo.gif
+src/            the pipeline -- sim, kinematics, grasping, perception,
+                planner, speech, executor, episode logging
+scripts/        one runnable script per stage, plus the benchmarks
+webapp/         the Gradio app (used locally, with --share, and on Colab)
+notebooks/      the Colab notebook
+tests/          29 smoke tests
+assets/         the MuJoCo scene
+docs/media/     the GIF and screenshots this README uses
 ```
 
-## Stack
+`src/backend.py` runs the same code two ways: MLX on Apple Silicon, PyTorch and
+transformers everywhere else. Details in [NOTES.md](NOTES.md).
 
-| Layer | Apple Silicon (MLX) | x86 + NVIDIA (transformers) |
-|---|---|---|
-| Physics | MuJoCo 3.12 | MuJoCo 3.12, `MUJOCO_GL=egl` |
-| Robot | Franka Emika Panda (`mujoco_menagerie`) | same |
-| IK | Damped least squares (`mink` optional) | same |
-| Perception | `google/owlv2-base-patch16-ensemble` | same |
-| Planner | `mlx-community/Qwen3-4B-4bit` | `Qwen/Qwen3-4B-Instruct-2507` |
-| Multilingual ASR | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
-| Tamil ASR | `vasista22/whisper-tamil-medium` | same |
-| Episodes | LeRobot-compatible parquet (pyarrow, not the `lerobot` package) | same |
-| UI | Gradio | same |
+## Built with
 
-`src/backend.py` resolves the two columns at import time. Everything above the
-model-loading layer is shared code.
-
-## Model selection
-
-Every choice below was measured on this machine, not assumed.
-
-**Planner: `Qwen3-4B-4bit`, not 8B.** Both models produced a correct plan on all
-8 test utterances (English, Tanglish, Tamil script), so the larger model bought
-nothing on this task:
-
-| planner | plans correct | mean generation | MLX active |
-|---|---|---|---|
-| **Qwen3-4B-4bit** | **8/8** | **0.87 s** | **2.26 GB** |
-| Qwen3-8B-4bit | 8/8 | 1.55 s | 4.61 GB |
-
-**`sarvam-m` (24 B) was rejected on footprint.** It is the strongest open model
-for Tamil, but at 4-bit it needs roughly 13 GB and cannot co-reside with the
-detector and both ASR models. That is a hardware constraint, not a quality
-claim — with more memory it would be worth revisiting, especially since the
-planner does have to read Tanglish.
-
-**ASR: both, with a router.** See the CER table above. The specialist wins on
-Tamil and is Tamil-only, so neither model is a safe default alone.
-
-## Performance
-
-End-to-end stage latency with all models resident, same input repeated:
-
-| run | ASR | plan | perceive | total |
-|---|---|---|---|---|
-| cold | 16.63 s | 4.33 s | 4.04 s | 25.00 s |
-| warm 1 | 8.15 s | 4.87 s | 1.11 s | 14.13 s |
-| warm 2 | 6.44 s | 1.73 s | 0.87 s | 9.04 s |
-| warm 3 | 4.94 s | 1.42 s | 0.94 s | **7.30 s** |
-
-MLX active memory 5.35 GB, peak 5.93 GB.
-
-**Allocator pressure, not compute, dominated the first version.** With the 8B
-planner the same loop ran 45 s and got *slower* every iteration, reaching 63 s.
-The cause was not model size in isolation: MLX and torch each keep an allocator
-pool that survives a forward pass, and with four models resident those pools
-were enough to start paging. Calling `mx.clear_cache()` once took a single plan
-call from 37.5 s to 1.7 s — a 22x swing with no change to the model.
-
-`src/memory.py` now drops both caches at stage boundaries. **Doing it inside the
-hot path made things worse**: clearing after every `transcribe()` call forced a
-full reallocation on the next operation and pushed the loop back to 60 s. The
-cache is there for a reason; only the boundaries between models are worth
-clearing.
-
-**Interleaved access is the expensive pattern.** Measuring all ASR calls, then
-all planner calls, then all detector calls looked fast. Running one command at a
-time — ASR, then plan, then detect — is 5-10x slower, because each switch pages
-the previous model out. That is the real workload, so that is what the table
-above reports.
-
-**Some of this is the machine, not the code.** `vm.swapusage` showed 20.1 GB of
-21.5 GB swap already in use before this project started, spread across many
-ordinary applications rather than any single large process. On a machine with
-free swap these numbers would be better; they are reported as measured.
+MuJoCo · Franka Emika Panda · OWLv2 · Qwen3-4B · Whisper · MLX · PyTorch · Gradio
 
 ## License
 
-Panda model © Franka Emika, redistributed from `mujoco_menagerie` under Apache
-2.0 (see `assets/mujoco_menagerie/franka_emika_panda/LICENSE`).
+Apache 2.0. The Panda model is (c) Franka Emika, redistributed from
+`mujoco_menagerie` under the same license.
