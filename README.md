@@ -240,9 +240,16 @@ cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
 ./setup.sh
 ```
 
-`setup.sh` creates `.venv`, installs dependencies, and downloads only the
+`setup.sh` creates `.venv`, installs `requirements.txt`, and downloads only the
 `franka_emika_panda` directory from `mujoco_menagerie` (36 MB) rather than
 cloning the full repository.
+
+`requirements.txt` is hand-maintained rather than a `pip freeze` dump, and lists
+only what the code imports. The frozen version it replaced pinned about ninety
+transitive packages, still pinned Streamlit's dependency tree long after that UI
+was removed, and omitted `gradio` -- which `./run.sh app` needs -- so a clean
+install could not launch the app. `webapp/requirements.txt` is the separate
+portable set the Colab notebook installs.
 
 ## Running
 
