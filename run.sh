@@ -6,8 +6,7 @@ PY=.venv/bin/python
 case "${1:-}" in
   demo)  shift; $PY scripts/demo.py "$@" ;;
   check) $PY scripts/demo.py --check ;;
-  app)   shift; $PY webapp/app.py "$@" ;;
   gif)   $PY scripts/make_gif.py ;;
   test)  $PY -m pytest tests/ -q ;;
-  *)     echo "usage: $0 {demo|check|app|gif|test}" ; exit 1 ;;
+  *)     echo "usage: $0 {demo|check|gif|test}" ; exit 1 ;;
 esac

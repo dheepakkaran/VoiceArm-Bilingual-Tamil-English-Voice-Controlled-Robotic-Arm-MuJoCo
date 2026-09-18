@@ -14,5 +14,4 @@ transformers>=4.45
 
 sounddevice>=0.5           # microphone
 
-gradio>=6.0
 pytest>=8.0

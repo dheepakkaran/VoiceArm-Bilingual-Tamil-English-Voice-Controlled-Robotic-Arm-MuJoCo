@@ -83,12 +83,3 @@ bowl", "neela cube-ah bowl-ukkulla vai", a Tamil pick command.
 
 That's also how I found the over-planning bug above: it was there all along, but
 the leaked examples were hiding it.
-
-## Why there's a web app
-
-A script can call `execute()` in three lines, so the Gradio app needs a reason:
-the microphone. `sounddevice` needs a local input device and Colab doesn't have
-one, so without a browser UI the voice half of a voice-controlled arm is
-unreachable in the only demo someone else can run.
-
-The same file works locally, with `--share`, and from the Colab notebook.

@@ -45,14 +45,17 @@ cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
 ./run.sh demo                    # three example commands
 ./run.sh demo --text "..."       # your own
 ./run.sh demo --mic              # say it out loud
+./run.sh demo --wav clip.wav     # from a recording
 ./run.sh check                   # arm and grasping only, no models
-./run.sh app                     # web UI on localhost:7860
 ./run.sh test                    # 12 tests
 ```
 
 `setup.sh` makes a virtualenv and downloads just the Franka Panda from
-`mujoco_menagerie` (36 MB) instead of the whole repo. Add `--share` to the app
-for a public link while it's running.
+`mujoco_menagerie` (36 MB) instead of the whole repo.
+
+The microphone only works locally -- `sounddevice` needs a real input device and
+Colab has none. In the notebook you type the command or pass a wav file, which
+runs the same pipeline.
 
 ## What works
 
@@ -74,7 +77,6 @@ bugs I hit.
 src/            the pipeline -- simulation, kinematics, grasping,
                 object detection, planning, speech
 scripts/demo.py   run it from the terminal
-webapp/app.py     the Gradio UI (also what Colab starts)
 notebooks/        the Colab notebook
 tests/            12 tests
 assets/           the MuJoCo scene
@@ -82,7 +84,7 @@ assets/           the MuJoCo scene
 
 ## Built with
 
-Python · PyTorch · MuJoCo · Franka Emika Panda · OWLv2 · Qwen2.5 · Whisper · Gradio
+Python · PyTorch · MuJoCo · Franka Emika Panda · OWLv2 · Qwen2.5 · Whisper
 
 ## License
 
