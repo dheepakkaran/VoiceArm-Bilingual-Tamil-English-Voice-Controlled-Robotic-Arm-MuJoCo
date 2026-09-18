@@ -83,7 +83,7 @@ Full tables, the ASR comparison, and what broke along the way are in
 ```
 src/            the pipeline -- sim, kinematics, grasping, perception,
                 planner, speech, executor, episode logging
-scripts/        one runnable script per stage, plus the benchmarks
+scripts/        one runnable script per stage, plus the ASR benchmark
 webapp/         the Gradio app (used locally, with --share, and on Colab)
 notebooks/      the Colab notebook
 tests/          29 smoke tests

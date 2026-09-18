@@ -111,11 +111,25 @@ Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
 
 ## Design notes
 
-**The grasp site and wrist camera are injected with `MjSpec`.** The vendored
-Panda model has no end-effector site, and MJCF `<include>` cannot add children
-to a body defined inside the included file. `src/sim.py` loads the scene as a
-spec, adds a `grasp_site` at the Panda TCP (0.1034 m along `+z` of the `hand`
-frame) plus a wrist camera, then compiles. The vendored asset stays untouched.
+**Silence was hallucinated into a task.** The first real microphone test recorded
+nothing -- the machine's input volume was at 27 out of 100 -- and Whisper
+correctly returned an empty transcript. The planner then invented a fluent
+instruction from that empty string, the arm executed it, and the run printed
+PASS. Nothing failed; it succeeded at the wrong thing, which is the worst kind of
+bug because it looks like the good kind. `route()` now raises `NoSpeechDetected`
+on digital silence or an empty transcript, and `execute()` refuses an empty
+utterance. The level gate catches only true silence: quiet speech still
+transcribes, and Whisper judges intelligibility far better than an amplitude
+threshold does -- an early 0.01 rms cutoff rejected speech that was perfectly
+audible.
+
+**Whisper's language ID is unstable on short Tamil clips.** Over repeated runs of
+the same audio it reported `ta` most of the time, but also `hi` and `kn`,
+transcribing Tamil speech into Devanagari or Kannada script. The router
+originally dispatched to the Tamil specialist on Tamil script alone, so it
+skipped that model in exactly the cases that needed it most. Any Indic language
+guess now triggers it, and the specialist wins whenever it returns Tamil script
+-- measured at 4.8% character error rate against 16.7%.
 
 **Grasping needed 6-DoF IK, not position-only.** The Panda's fingers slide along
 the hand frame's *y* axis, so a top-down grasp has to constrain orientation as
@@ -123,34 +137,10 @@ well as position. `ik()` stacks the positional and rotational site Jacobians and
 solves both together; `GRASP_DOWN_MAT` points the site *z* axis at the table and
 aligns the finger-separation axis with world *y*.
 
-**Transit waypoints use a looser tolerance than the grasp.** Near the edge of the
-workspace the 2 mm grasp tolerance is unreachable for approach and lift poses,
-which made `place()` fail on a target that was in fact fine to reach. Approach
-and lift now solve to 6 mm; only the grasp waypoint holds 2 mm.
-
-**Perception uses a camera cascade, not a per-object rule.** Straight down, a
-bowl is only a white ring and OWLv2 scored nothing against any bowl-like query;
-from an angle it scores 0.29. Cubes ground far more accurately from overhead
-(0.2–0.5 cm vs 1.4–2.0 cm) because their top face is what the depth sample hits.
-`locate()` therefore tries `topcam` first and falls back to the angled
-`perceptcam`, taking the first confident detection. Nothing in that path knows
-which objects need which view, so an unseen noun gets the same benefit.
-
 **Depth lands on the top face, not the centre.** An overhead view only ever sees
 an object's top surface, so the deprojected point sits half an object-height too
 high. For anything resting on the table the centre is the midpoint between that
 surface and the tabletop — which needs no prior knowledge of the object's size.
-
-**The bowl is a ring of 16 boxes with quaternion rotations.** MuJoCo takes its
-angle unit from the compiler, and the vendored `panda.xml` sets
-`angle="radian"`; degree-valued `euler` attributes were silently reinterpreted
-and produced a starburst instead of a bowl.
-
-**The dashboard streams the motion live rather than only replaying it.**
-`SimEnv.start_recording` takes an `on_frame` callback invoked as each frame is
-captured, so the UI can push frames into a placeholder while the
-episode is still running; the same frames are then encoded to mp4 per episode
-for replay. A pick-and-place streams 176 frames over roughly 9 seconds.
 
 **All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
 owns an OpenGL context bound to its creating thread, and a web framework calls in
@@ -160,27 +150,10 @@ rather than raise — the dashboard hung silently on its first command. `SimEnv`
 now owns a single-worker executor; every render is submitted to it and the
 caller blocks on the result.
 
-**The planner prompt carries a romanized-Tamil glossary.** Qwen3 reads Tamil
-script well but did not know `sivappu` means red — it planned a pick on the bowl
-for *"sivappu block-ah bowl-la vai"*. Adding a short colour/verb glossary and two
-Tanglish examples to the system prompt took that case from wrong to correct, and
-all 8 M5 utterances now plan through the LLM.
-
-**Transit waypoints degrade instead of aborting.** Perception put the container
-5 mm further out than ground truth, which pushed the approach waypoint just past
-the top-down workspace and failed the whole episode at 9.2 mm of IK error. Place
-approaches are lower than lift approaches now, and a transit waypoint that
-stalls within 2 cm is accepted rather than raised — precision there buys nothing.
-
 **IK is damped least squares on the site Jacobian.** `mink` is used when it is
 installed; the built-in solver is the default path and is what the numbers above
 were measured with. Step size is clamped and joint limits are enforced each
 iteration, so the solver stays stable near singularities.
-
-**The overhead camera is rotated, not just raised.** `topcam` uses
-`xyaxes="0 1 0 -1 0 0"` so the image's wide axis covers the table's wide axis
-(world *y*). At a fixed height this fits the whole worktop in frame, which
-matters for M4 detection.
 
 **`SimEnv.park()` exists because the arm occludes the worktop.** At the home
 pose the Panda sits directly under the overhead camera. `park()` retracts it
