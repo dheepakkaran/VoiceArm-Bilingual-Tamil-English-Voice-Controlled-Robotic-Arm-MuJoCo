@@ -134,7 +134,9 @@ in [NOTES.md](NOTES.md).
 ## 6. Result: accuracy
 
 Every number below is checked against the simulator's own state, which is the
-one oracle I have. `./run.sh check` reruns the first two rows.
+one oracle I have -- the detector's guess is compared to where MuJoCo actually
+put the object, not to a label I wrote. Reproduce the first two rows with
+`./run.sh check` and the rest with `./run.sh demo`.
 
 | | |
 |---|---|
@@ -158,11 +160,13 @@ Same command, run repeatedly, on an M5 MacBook with 16 GB:
 
 | | |
 |---|---|
-| First command after start | 10.5 s |
-| After that | **1.4 - 2.7 s** |
+| First command after start | 10 - 12 s |
+| After that | **1.3 - 2.9 s** |
 
-The first call pays for loading three models. The remaining time is mostly
-Whisper; planning is about 1 s and detection under 1 s.
+Ranges across repeated runs, not a single best case. The first command pays for
+loading three models. After that, a pick-only command is about 1.3 s and a
+pick-and-place about 2.7 s, since the second one plans two steps and runs twice
+as much motion.
 
 This number was 569 s before I found the memory bug in
 [NOTES.md](NOTES.md#it-was-slow-because-of-memory-not-compute). It was not
