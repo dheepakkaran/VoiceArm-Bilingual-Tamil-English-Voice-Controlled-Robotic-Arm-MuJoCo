@@ -34,19 +34,23 @@ dropped in the container:
 | Mean final offset from container centre | **1.7 mm** |
 | Grasp strategy | friction only — no weld constraint needed |
 
-**M4 — open-vocabulary grounding**, four free-text queries against simulator
-ground truth:
+**M4 — open-vocabulary perception**, three trials with the blocks shuffled
+between each. A single fixed layout would show the detector works on that
+layout; it says nothing about whether the grounding generalises, which is what
+the result claims.
+
+| | |
+|---|---|
+| Localizations within 3 cm | **12/12** |
+| Mean error | **0.67 cm** |
+| Worst error | 1.44 cm (the bowl, every trial) |
 
 ![detections](docs/media/m4_detections.png)
 
-| Query | Camera | Score | Error |
-|---|---|---|---|
-| "a red cube" | topcam | 0.58 | 0.5 cm |
-| "a green cube" | topcam | 0.56 | 0.2 cm |
-| "a blue cube" | topcam | 0.65 | 0.5 cm |
-| "a white bowl" | perceptcam | 0.21 | 1.5 cm |
-
-**4 / 4 within 3 cm**, mean error **0.66 cm**.
+The bowl is consistently the worst and consistently the lowest-confidence
+detection (score ~0.20 against ~0.6 for the blocks). It is also the only object
+whose depth reading lands on its interior floor rather than a top face, so the
+resting-object correction does not apply to it -- only its *xy* is scored.
 
 **M5 — local LLM planner**, `Qwen3-4B-4bit` via MLX, no cloud API:
 
@@ -57,30 +61,45 @@ ground truth:
 | Tamil script | 3 | 3 |
 | **Total** | **8** | **8** |
 
-Median plan latency **0.87 s** on the shipped 4B (first call is slower, cold
+Median plan latency **1.17 s** on the shipped 4B (first call is slower, cold
 cache). Every one of the eight was planned by the LLM; the regex fallback was
-not needed. These eight utterances are the fixed set the planner comparison in
-[Model selection](#model-selection) also scores against.
+not needed.
+
+**These eight are held out from the planner prompt.** An earlier version of this
+test reused four of the prompt's own few-shot examples verbatim, so half the
+score was measuring whether the model could copy its examples back rather than
+whether it could read an instruction it had not seen. Replacing them changed the
+phrasing (`"drop the red cube into the bowl"`, `"neela cube-ah bowl-ukkulla
+vai"`, `"சிவப்புப் பொருளை எடு"`) and the score stayed 8/8, which is the result
+the earlier number was claiming but not measuring.
 
 **ASR benchmark** (`./run.sh bench`), 6 Tamil sentences synthesised with the
 macOS `Vani` voice and read from wav files, so room acoustics are out of the
-loop. Character error rate against the reference text:
+loop. Each sentence is transcribed 3 times, giving 18 transcriptions -- Whisper's
+decoding is not deterministic, and an earlier version of this benchmark measured
+each sentence once, reporting one sample from that spread as if it were the
+number. Character error rate against the reference:
 
-| backend | mean CER | median CER |
-|---|---|---|
-| whisper-large-v3 (multilingual) | 16.7% | **0.0%** |
-| whisper-tamil-medium (specialist) | **4.8%** | **0.0%** |
-| routed — what ships | **4.8%** | **0.0%** |
+| backend | mean CER | median | worst |
+|---|---|---|---|
+| whisper-large-v3 (multilingual) | 16.7% | **0.0%** | **100.0%** |
+| whisper-tamil-medium (specialist) | **4.8%** | **0.0%** | 14.3% |
+| routed — what ships | **4.8%** | **0.0%** | 14.3% |
 
-The mean and the median tell different stories, and the median is the honest
-one: the multilingual model is exact on 5 of 6 sentences and then decodes the
-sixth into Devanagari at 100% CER. Its problem is not steady inaccuracy, it is
-rare total failure. The specialist never failed that way; its non-zero scores
-are sandhi spellings (`நீலக்` for `நீல`), which are orthographic conventions
-rather than recognition errors. The router picked the specialist 6/6.
+The worst column is the one that matters. The multilingual model is exact on
+most runs and then decodes one sentence into Devanagari at 100% CER -- its
+problem is rare total failure, not steady inaccuracy, which a mean of 16.7%
+hides and a median of 0% hides completely. The specialist never failed that way;
+its non-zero scores are sandhi spellings (`நீலக்` for `நீல`), orthographic
+convention rather than recognition error.
 
-These are synthetic voices. Synthetic speech is markedly easier than human
-speech, so treat these as a floor on error, not an estimate of real accuracy.
+Across the 18 runs the detected language was `ta` 15 times and `hi` 3 times on
+Tamil audio. The router chose the specialist 18/18.
+
+These are synthetic voices from a single speaker. Synthetic speech is markedly
+easier than human speech, so treat these as a floor on error rather than an
+estimate of real accuracy, and note that speaker variation is not measured at
+all.
 
 **M6 — dual-ASR router.** Tamil audio, both backends transcribed correctly and
 the router picked the specialist:

@@ -4,9 +4,15 @@ Sentences are synthesised with the macOS Tamil voice and read back from wav
 files rather than through the speakers, so the measurement isolates the models
 from room acoustics. Synthetic speech is easier than real speech -- these
 numbers are a floor on error, not an estimate of real-world accuracy.
+
+Each sentence is transcribed several times. Whisper's decoding is not
+deterministic -- the same clip comes back as `ta`, `hi` or `kn` across runs,
+which is the whole reason the router exists. Measuring once would report one
+sample from that spread as if it were the number.
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import tempfile
@@ -65,14 +71,26 @@ def synth(text: str, voice: str, path: Path) -> bool:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repeats", type=int, default=3,
+                    help="transcriptions per sentence; Whisper is not deterministic")
+    args = ap.parse_args()
+
     voice = tamil_voice()
     if voice is None:
         print("No Tamil system voice installed; cannot run this benchmark.")
         return 2
-    print(f"synthesising with `say -v {voice}` -- synthetic speech, not human\n")
+    print(f"synthesising with `say -v {voice}` -- synthetic speech, not human")
+    print(f"{args.repeats} transcriptions per sentence")
+    print()
 
     tmp = Path(tempfile.mkdtemp())
-    ml_errs, ta_errs, routed_errs, chose_specialist = [], [], [], 0
+    ml_errs: list[float] = []
+    ta_errs: list[float] = []
+    routed_errs: list[float] = []
+    chose_specialist = 0
+    langs: dict[str, int] = {}
+    runs = 0
 
     for i, ref in enumerate(SENTENCES):
         wav = tmp / f"{i}.wav"
@@ -81,26 +99,40 @@ def main() -> int:
             continue
         audio = speech.load_wav(str(wav))
 
-        ml_text, lang = speech.transcribe_multilingual(audio)
-        ta_text = speech.transcribe_tamil(audio)
-        routed = speech.route(audio)
-        chose_specialist += routed.source == "tamil_specialist"
+        print(f"ref  {ref}")
+        for r in range(args.repeats):
+            ml_text, lang = speech.transcribe_multilingual(audio)
+            ta_text = speech.transcribe_tamil(audio)
+            routed = speech.route(audio)
 
-        ml_errs.append(cer(ref, ml_text))
-        ta_errs.append(cer(ref, ta_text))
-        routed_errs.append(cer(ref, routed.text))
+            langs[lang] = langs.get(lang, 0) + 1
+            chose_specialist += routed.source == "tamil_specialist"
+            runs += 1
 
-        print(f"ref                 {ref}")
-        print(f"  multilingual [{lang}] {ml_errs[-1] * 100:6.1f}%  {ml_text}")
-        print(f"  specialist         {ta_errs[-1] * 100:6.1f}%  {ta_text}")
-        print(f"  routed -> {routed.source:<18}{routed_errs[-1] * 100:6.1f}%\n")
+            ml_errs.append(cer(ref, ml_text))
+            ta_errs.append(cer(ref, ta_text))
+            routed_errs.append(cer(ref, routed.text))
 
-    n = len(routed_errs)
-    print(f"{'backend':<22}{'mean CER':>10}{'median':>10}")
+            print(f"  run {r + 1}  [{lang:>2}]  multilingual {ml_errs[-1] * 100:6.1f}%"
+                  f"   specialist {ta_errs[-1] * 100:6.1f}%"
+                  f"   routed {routed_errs[-1] * 100:6.1f}%")
+        print()
+
+    if not runs:
+        print("nothing measured")
+        return 1
+
+    print(f"{'backend':<22}{'mean CER':>10}{'median':>9}{'worst':>9}")
     for name, errs in (("multilingual", ml_errs), ("tamil_specialist", ta_errs),
                        ("routed (shipped)", routed_errs)):
-        print(f"{name:<22}{np.mean(errs) * 100:>9.1f}%{np.median(errs) * 100:>9.1f}%")
-    print(f"\nn={n}  router chose the specialist {chose_specialist}/{n} times")
+        print(f"{name:<22}{np.mean(errs) * 100:>9.1f}%"
+              f"{np.median(errs) * 100:>8.1f}%{np.max(errs) * 100:>8.1f}%")
+
+    print()
+    print(f"{len(SENTENCES)} sentences x {args.repeats} runs = {runs} transcriptions")
+    print(f"router chose the specialist {chose_specialist}/{runs}")
+    print("detected language across runs: "
+          + ", ".join(f"{k}={v}" for k, v in sorted(langs.items(), key=lambda kv: -kv[1])))
     return 0
 
 

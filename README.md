@@ -70,9 +70,9 @@ machine, which lasts while the process is up.
 |---|---|
 | Inverse kinematics | 10/10 random targets within 5 mm (mean 0.44 mm) |
 | Pick and place | 3/3 blocks placed, 1.7 mm from the container centre |
-| Object localization | 4/4 within 3 cm, mean 0.66 cm |
-| Commands executed | 8/8 across English, Tanglish and Tamil script |
-| Tamil transcription | 4.8% character error rate, 0% median |
+| Object localization | 12/12 within 3 cm over 3 shuffled layouts, mean 0.67 cm |
+| Commands executed | 8/8 held-out, across English, Tanglish and Tamil script |
+| Tamil transcription | 4.8% mean CER over 18 runs, 0% median |
 | Latency, warm | 7.3 s end to end on an M5 |
 
 Full tables, the ASR comparison, and what broke along the way are in

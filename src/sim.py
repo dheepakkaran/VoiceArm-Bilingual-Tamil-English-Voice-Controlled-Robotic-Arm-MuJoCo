@@ -118,6 +118,22 @@ class SimEnv:
         sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, config.GRIPPER_SITE)
         return self.data.site_xpos[sid].copy()
 
+    def place_object(self, name: str, xy: np.ndarray, z: float = 0.421) -> None:
+        """Move a free-jointed body to `xy` on the tabletop.
+
+        Free bodies carry 7 qpos values (position then quaternion), so the write
+        goes to the joint's qpos address rather than a body index.
+        """
+        jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT,
+                                name.replace("_block", "_free"))
+        if jid < 0:
+            raise ValueError(f"no free joint for body {name!r}")
+        adr = self.model.jnt_qposadr[jid]
+        self.data.qpos[adr:adr + 3] = [xy[0], xy[1], z]
+        self.data.qpos[adr + 3:adr + 7] = [1, 0, 0, 0]
+        self.data.qvel[self.model.jnt_dofadr[jid]:self.model.jnt_dofadr[jid] + 6] = 0
+        mujoco.mj_forward(self.model, self.data)
+
     def body_pos(self, name: str) -> np.ndarray:
         bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name)
         if bid < 0:

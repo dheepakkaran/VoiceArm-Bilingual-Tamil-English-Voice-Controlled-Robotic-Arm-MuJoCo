@@ -1,4 +1,9 @@
-"""M5 acceptance: run mixed Tamil / English / Tanglish utterances end to end."""
+"""M5 acceptance: run mixed Tamil / English / Tanglish utterances end to end.
+
+These eight are held out from the planner prompt. An earlier version reused four
+of the prompt's own few-shot examples verbatim, so half the score was measuring
+whether the model could copy them back.
+"""
 from __future__ import annotations
 
 import sys
@@ -10,14 +15,14 @@ from src.executor import execute
 from src.sim import SimEnv
 
 UTTERANCES = [
-    ("english",  "put the red block in the bowl"),
-    ("english",  "pick up the green cube"),
-    ("tanglish", "sivappu block-ah bowl-la vai"),
-    ("tanglish", "pachai block-ah edu"),
-    ("tanglish", "neela block-ah bowl-la podu"),
-    ("tamil",    "நீல கட்டையை கிண்ணத்தில் வை"),
-    ("tamil",    "பச்சை கட்டையை எடு"),
-    ("tamil",    "சிவப்பு கட்டையை கிண்ணத்தில் வை"),
+    ("english",   "drop the red cube into the bowl"),
+    ("english",   "grab the blue block"),
+    ("tanglish",  "green block-ah edu"),
+    ("tanglish",  "sivappu kattai-ah bowl-la podu"),
+    ("tanglish",  "neela cube-ah bowl-ukkulla vai"),
+    ("tamil",     "பச்சைக் கட்டையை கிண்ணத்தில் போடு"),
+    ("tamil",     "சிவப்புப் பொருளை எடு"),
+    ("tamil",     "நீலக் கட்டையை எடு"),
 ]
 
 
