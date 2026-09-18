@@ -26,10 +26,6 @@ transformers>=4.45
 # audio capture
 sounddevice>=0.5
 
-# episode log
-pandas>=2.2
-pyarrow>=18.0
-
 # web app
 gradio>=6.0
 

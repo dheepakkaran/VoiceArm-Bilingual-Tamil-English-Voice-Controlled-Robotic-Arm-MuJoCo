@@ -191,21 +191,18 @@ def test_script_router(text: str, expect_specialist: bool) -> None:
 
 
 # --- episodes ---------------------------------------------------------------
-def test_episode_roundtrip(tmp_path, monkeypatch) -> None:
+def test_episode_log_round_trips(tmp_path, monkeypatch) -> None:
     from src import episodes
 
-    monkeypatch.setattr(episodes, "INDEX", tmp_path / "episodes.parquet")
-    monkeypatch.setattr(config, "EPISODES", tmp_path)
+    monkeypatch.setattr(episodes, "LOG_FILE", tmp_path / "episodes.csv")
+    ep = episodes.Episode(raw_utterance="sivappu block-ah edu", success=True,
+                          detect_error_m=0.012, plan_source="llm")
+    episodes.record(ep)
 
-    ep = episodes.Episode(raw_utterance="sivappu block-ah bowl-la vai",
-                          plan_source="fallback", success=True, detect_error_m=0.012)
-    episodes.record(ep, states=[np.zeros(7), np.ones(7)])
-
-    df = episodes.load_index()
-    assert len(df) == 1
-    assert df.iloc[0]["raw_utterance"] == "sivappu block-ah bowl-la vai"
-    assert (tmp_path / ep.episode_id / "data.parquet").exists()
-
+    rows = episodes.load()
+    assert len(rows) == 1
+    assert rows[0]["raw_utterance"] == "sivappu block-ah edu"
+    assert rows[0]["success"] == "True"
 
 def test_silence_never_reaches_the_planner() -> None:
     from src import speech

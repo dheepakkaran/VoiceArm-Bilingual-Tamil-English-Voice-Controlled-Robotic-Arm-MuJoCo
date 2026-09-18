@@ -67,7 +67,6 @@ def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
     env.park()
     if capture_video or on_frame is not None:
         env.start_recording(config.SCENE_CAM, every=frame_every, on_frame=on_frame)
-    steps_before = int(env.data.time / env.model.opt.timestep)
     held: str | None = None
 
     try:
@@ -102,12 +101,11 @@ def execute(env: SimEnv, utterance: str, *, cleaned: str | None = None,
         log.warning("execution failed: %s", exc)
         ep.success = False
 
-    ep.num_sim_steps = int(env.data.time / env.model.opt.timestep) - steps_before
     ep.duration_s = time.perf_counter() - t0
 
     frames = env.stop_recording() if (capture_video or on_frame is not None) else None
     if record:
-        episodes.record(ep, frames=frames, states=[env.get_joints()])
+        episodes.record(ep)
     if frames and capture_video:
         from .video import write_video
 

@@ -18,9 +18,5 @@ torch
 transformers>=4.45
 accelerate                 # device_map="auto" in scripts/bench_planner.py
 
-# episode log
-pandas
-pyarrow
-
 # web app
 gradio==6.26.0
