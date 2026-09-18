@@ -1,45 +1,30 @@
-"""Release framework memory caches between pipeline stages.
+"""Drop the framework's memory caches between stages.
 
-MLX and torch both keep allocator pools that survive a forward pass. With four
-models resident on a 16 GB machine those pools are large enough that generation
-starts paging, and the planner slows from under 2 s to over 35 s -- a 20x
-penalty that is pure allocator pressure, not compute. Dropping the caches at
-stage boundaries costs a few milliseconds and recovers all of it.
+PyTorch keeps an allocator pool alive after a forward pass. With three models
+loaded on a 16 GB machine those pools are big enough to push the machine into
+swap, and a single plan goes from under two seconds to minutes. Clearing them
+between stages costs a few milliseconds.
+
+Clearing after *every* call is worse, not better -- the next operation has to
+reallocate from scratch. Only the handoff between models is worth clearing.
 """
 from __future__ import annotations
 
+import gc
 import logging
 
 log = logging.getLogger(__name__)
 
 
 def release_caches() -> None:
-    """Drop MLX and torch allocator caches. Safe to call when neither is loaded."""
-    try:
-        import mlx.core as mx
-
-        mx.clear_cache()
-    except Exception:  # mlx absent or no Metal device
-        pass
-
+    """Free cached blocks. Safe to call whether or not a model is loaded."""
+    gc.collect()
     try:
         import torch
+    except ImportError:
+        return
 
-        if torch.backends.mps.is_available():
-            torch.mps.empty_cache()
-    except Exception:
-        pass
-
-
-def stats() -> dict[str, float]:
-    """Current MLX allocator figures in GB, for the dashboard and benchmarks."""
-    try:
-        import mlx.core as mx
-
-        return {
-            "mlx_active_gb": mx.get_active_memory() / 1e9,
-            "mlx_peak_gb": mx.get_peak_memory() / 1e9,
-            "mlx_cache_gb": mx.get_cache_memory() / 1e9,
-        }
-    except Exception:
-        return {}
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif torch.backends.mps.is_available():
+        torch.mps.empty_cache()

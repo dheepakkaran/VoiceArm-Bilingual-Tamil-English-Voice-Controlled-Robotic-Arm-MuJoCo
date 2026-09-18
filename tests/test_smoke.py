@@ -32,7 +32,7 @@ def test_scene_compiles(env: SimEnv) -> None:
 
 def test_injected_site_and_camera(env: SimEnv) -> None:
     assert mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, config.GRIPPER_SITE) >= 0
-    for cam in (config.TOP_CAM, config.WRIST_CAM):
+    for cam in config.PERCEPTION_CAMERAS:
         assert mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_CAMERA, cam) >= 0
 
 
@@ -141,74 +141,6 @@ def test_perception_cameras_exist(env: SimEnv) -> None:
 
 
 # --- planner ----------------------------------------------------------------
-@pytest.mark.parametrize(("utterance", "target", "n_steps"), [
-    ("put the red block in the bowl", "a red cube", 2),
-    ("pick up the green cube", "a green cube", 1),
-    ("sivappu block-ah bowl-la vai", "a red cube", 2),
-    ("pachai block-ah edu", "a green cube", 1),
-    ("நீல கட்டையை கிண்ணத்தில் வை", "a blue cube", 2),
-    ("சிவப்பு கட்டையை எடு", "a red cube", 1),
-])
-def test_plan_fallback(utterance: str, target: str, n_steps: int) -> None:
-    from src.planner import plan_fallback
-
-    steps = plan_fallback(utterance)
-    assert len(steps) == n_steps, steps
-    assert steps[0] == {"action": "pick", "target": target}
-    if n_steps == 2:
-        assert steps[1]["action"] == "place"
-
-
-def test_plan_fallback_ignores_unknown_objects() -> None:
-    from src.planner import plan_fallback
-
-    assert plan_fallback("bring me a coffee") == []
-
-
-def test_extract_json_strips_fences_and_thinking() -> None:
-    from src.planner import _extract_json
-
-    raw = ('<think>the user wants the red one</think>\n```json\n'
-           '[{"action":"pick","target":"a red cube"}]\n```')
-    assert _extract_json(raw) == [{"action": "pick", "target": "a red cube"}]
-    assert _extract_json("sorry, I cannot do that") is None
-    assert _extract_json('[{"action":"teleport","target":"x"}]') is None
-
-
-# --- speech router ----------------------------------------------------------
-@pytest.mark.parametrize(("text", "expect_specialist"), [
-    ("சிவப்பு பொருளை எடு", True),
-    ("put the red block in the bowl", False),
-    ("red block-ah edu", False),
-    ("சிவப்பு block-ஐ bowl-ல வை", False),      # code-switched stays multilingual
-])
-def test_script_router(text: str, expect_specialist: bool) -> None:
-    from src.speech import TAMIL_SCRIPT_THRESHOLD, tamil_ratio
-
-    ratio = tamil_ratio(text)
-    assert 0.0 <= ratio <= 1.0, "combining marks must not inflate the ratio"
-    assert (ratio > TAMIL_SCRIPT_THRESHOLD) is expect_specialist
-
-
-# --- episodes ---------------------------------------------------------------
-def test_episode_log_round_trips(tmp_path, monkeypatch) -> None:
-    from src import episodes
-
-    monkeypatch.setattr(episodes, "LOG_FILE", tmp_path / "episodes.csv")
-    ep = episodes.Episode(raw_utterance="sivappu block-ah edu", success=True,
-                          detect_error_m=0.012, plan_source="llm")
-    episodes.record(ep)
-
-    rows = episodes.load()
-    assert len(rows) == 1
-    assert rows[0]["raw_utterance"] == "sivappu block-ah edu"
-    assert rows[0]["success"] == "True"
-
-def test_silence_never_reaches_the_planner() -> None:
-    from src import speech
-
-    with pytest.raises(speech.NoSpeechDetected):
-        speech.route(np.zeros(16_000 * 3, dtype=np.float32))
 
 
 def test_empty_utterance_is_refused() -> None:
@@ -218,48 +150,15 @@ def test_empty_utterance_is_refused() -> None:
         execute(None, "   ")
 
 
-def test_trim_silence_keeps_the_speech_region() -> None:
-    from src.speech import SAMPLE_RATE, trim_silence
-
-    rng = np.random.default_rng(0)
-    quiet = rng.normal(0, 0.001, SAMPLE_RATE * 2).astype(np.float32)
-    loud = rng.normal(0, 0.2, SAMPLE_RATE).astype(np.float32)
-    clip = np.concatenate([quiet, loud, quiet])
-
-    trimmed = trim_silence(clip)
-    assert len(trimmed) < len(clip)
-    assert len(trimmed) >= SAMPLE_RATE          # the speech itself survives
-
-
-def test_indic_misdetection_still_triggers_the_specialist() -> None:
-    from src.speech import INDIC_LANGS
-
-    # Whisper reports these for Tamil audio; each must still reach the specialist.
-    for lang in ("ta", "hi", "kn", "ml", "te"):
-        assert lang in INDIC_LANGS
-
-
-def test_cleanup_prompt_is_separate_and_grounded() -> None:
-    """The two system prompts must not be merged.
-
-    Appending a "reply with a sentence" nudge to the planner prompt, which
-    demands JSON only, left the model with contradictory instructions -- it
-    returned a plan that then got logged as the user's utterance. And a cleanup
-    prompt without the scene in it free-associates: an early version turned
-    "pachai kattaiyai kinnathil vai" into "Turn on the fan."
-    """
-    from src.planner import CLEANUP_PROMPT, SYSTEM_PROMPT
-
-    assert CLEANUP_PROMPT is not SYSTEM_PROMPT
-    assert "JSON" not in CLEANUP_PROMPT.replace("No JSON", "")
-    for token in ("red", "green", "blue", "bowl", "sivappu", "pachai", "edu"):
-        assert token in CLEANUP_PROMPT.lower(), f"cleanup prompt lacks {token!r}"
-
-
-def test_cleanup_rejects_a_leaked_plan(monkeypatch) -> None:
+def test_silence_is_refused() -> None:
     from src import speech
 
-    monkeypatch.setattr("src.planner._generate",
-                        lambda *a, **k: '[{"action":"pick","target":"a red cube"}]')
-    raw = "sivappu block-ah edu"
-    assert speech.clean_transcript(raw) == raw
+    with pytest.raises(speech.NoSpeechDetected):
+        speech.transcribe(np.zeros(16_000 * 3, dtype=np.float32))
+
+
+def test_empty_utterance_is_refused() -> None:
+    from src.executor import execute
+
+    with pytest.raises(ValueError):
+        execute(None, "   ")

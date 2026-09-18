@@ -15,7 +15,7 @@ import re
 import time
 from typing import Any
 
-from . import backend, config
+from . import config
 from .memory import release_caches
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,10 @@ white bowl.
 Return ONLY a JSON array. No prose, no markdown fences, no explanation.
 Each element is {"action": ..., "target": ...}.
 Allowed actions: "pick", "place", "move_to", "say".
+
+Only add a "place" step if the user actually said where to put it. If they just
+said to pick something up, return the "pick" step alone. A smaller model tends
+to add "place" anyway, so this rule matters more than it looks.
 "target" is a short English noun phrase describing the object, for example
 "a red cube" or "a white bowl". It is passed to a vision model, so describe the
 object rather than naming a variable.
@@ -46,6 +50,7 @@ Romanized Tamil words you will see, with their meanings:
   sivappu / sivapu = red        pachai / pachchai = green
   neelam / neela = blue         manjal = yellow
   kattai / block / cube = cube  kinnam / bowl = bowl
+  porul / பொருள் = thing, object -- still one of the three cubes
   edu / eduthu = pick up        vai / vei / podu = put, place
   -ah, -ai, -ya = object marker (ignore it)
   -la, -le, -il = "in" or "on"  (ignore it)
@@ -99,30 +104,26 @@ def plan_fallback(utterance: str) -> list[dict[str, Any]]:
 
 # --- local LLM --------------------------------------------------------------
 def _load():
-    """Load the planner once. MLX on Apple Silicon, transformers elsewhere."""
+    """Load the planner once and keep it."""
     global _llm, _tokenizer
     if _llm is not None:
         return _llm, _tokenizer
 
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     t0 = time.perf_counter()
-    log.info("loading %s (%s)", backend.LLM_MODEL, backend.BACKEND)
+    device = "cuda" if torch.cuda.is_available() else (
+        "mps" if torch.backends.mps.is_available() else "cpu")
+    log.info("loading %s on %s", config.LLM_MODEL, device)
 
-    if backend.IS_MLX:
-        from mlx_lm import load
+    _tokenizer = AutoTokenizer.from_pretrained(config.LLM_MODEL)
+    _llm = AutoModelForCausalLM.from_pretrained(
+        config.LLM_MODEL,
+        dtype=torch.float32 if device == "cpu" else torch.bfloat16,
+        low_cpu_mem_usage=True,
+    ).to(device).eval()
 
-        _llm, _tokenizer = load(backend.LLM_MODEL)
-    else:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        device = backend.torch_device()
-        dtype = torch.float32 if device == "cpu" else torch.bfloat16
-        _tokenizer = AutoTokenizer.from_pretrained(backend.LLM_MODEL)
-        _llm = AutoModelForCausalLM.from_pretrained(
-            backend.LLM_MODEL, dtype=dtype, low_cpu_mem_usage=True,
-        ).to(device).eval()
-
-    release_caches()
     log.info("planner ready in %.1f s", time.perf_counter() - t0)
     return _llm, _tokenizer
 
@@ -170,60 +171,42 @@ Reply with exactly one English sentence stating what the speaker wants. No JSON,
 no lists, no explanation, no quotes -- just the sentence."""
 
 
-def _chat_prompt(tokenizer, utterance: str, nudge: str, system: str):
-    """Render the chat template, disabling Qwen3's thinking mode.
-
-    Left as tokens for MLX and as text for transformers, which is what each
-    generate path expects.
-    """
-    messages = [
-        {"role": "system", "content": system + nudge},
-        {"role": "user", "content": utterance},
-    ]
-    try:  # Qwen3 exposes a thinking mode; JSON-only output needs it off
-        return tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, enable_thinking=False,
-            tokenize=backend.IS_MLX,
-        )
-    except TypeError:
-        return tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, tokenize=backend.IS_MLX,
-        )
-
-
 def _generate(utterance: str, nudge: str = "", system: str | None = None) -> str:
     """Generate against `system`, defaulting to the planner prompt.
 
-    The system prompt has to be swappable: transcript cleanup asks for a plain
-    sentence, and appending that request to the planner prompt -- which demands
-    "ONLY a JSON array" -- left the model with contradictory instructions. It
-    followed the stronger one and returned a plan, which then got logged as the
-    user's utterance.
+    The system prompt is swappable because transcript cleanup asks for a plain
+    sentence, and appending that to the planner prompt -- which demands "ONLY a
+    JSON array" -- left the model with contradictory instructions. It followed
+    the stronger one and returned a plan, which then got logged as the user's
+    words.
     """
-    model, tokenizer = _load()
-    release_caches()          # ASR and detection pools would otherwise page us out
-    prompt = _chat_prompt(tokenizer, utterance, nudge, system or SYSTEM_PROMPT)
-
-    if backend.IS_MLX:
-        from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-
-        return generate(model, tokenizer, prompt=prompt, max_tokens=MAX_TOKENS,
-                        sampler=make_sampler(temp=TEMPERATURE), verbose=False)
-
     import torch
+
+    model, tokenizer = _load()
+    release_caches()   # the ASR and detector pools would page us out
+    messages = [
+        {"role": "system", "content": (system or SYSTEM_PROMPT) + nudge},
+        {"role": "user", "content": utterance},
+    ]
+    try:  # Qwen3 has a thinking mode; JSON-only output needs it off
+        prompt = tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, enable_thinking=False, tokenize=False)
+    except TypeError:
+        prompt = tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False)
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     with torch.no_grad():
         out = model.generate(**inputs, max_new_tokens=MAX_TOKENS,
-                             do_sample=TEMPERATURE > 0, temperature=TEMPERATURE or None,
+                             do_sample=TEMPERATURE > 0,
+                             temperature=TEMPERATURE or None,
                              pad_token_id=tokenizer.eos_token_id)
-    return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
+                            skip_special_tokens=True)
 
 
-def plan(utterance: str) -> tuple[list[dict[str, Any]], str, float]:
-    """Return (steps, source, latency_s). `source` is "llm" or "fallback"."""
-    t0 = time.perf_counter()
+def plan(utterance: str) -> tuple[list[dict[str, Any]], str]:
+    """Return (steps, source). `source` is "llm" or "fallback"."""
     try:
         raw = _generate(utterance)
         steps = _extract_json(raw)
@@ -233,12 +216,12 @@ def plan(utterance: str) -> tuple[list[dict[str, Any]], str, float]:
                                        "Reply with the JSON array only.")
             steps = _extract_json(raw)
         if steps is not None:
-            return steps, "llm", time.perf_counter() - t0
+            return steps, "llm"
         log.warning("LLM produced no valid plan, using fallback parser")
     except Exception as exc:  # model missing, OOM, download failure
         log.warning("planner LLM unavailable (%s), using fallback parser", type(exc).__name__)
 
-    return plan_fallback(utterance), "fallback", time.perf_counter() - t0
+    return plan_fallback(utterance), "fallback"
 
 
 if __name__ == "__main__":

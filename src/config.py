@@ -1,66 +1,42 @@
-"""Central configuration: paths, model ids, and tuning constants."""
+"""Paths, model names, and tuning constants."""
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
-MENAGERIE = ASSETS / "mujoco_menagerie"
-PANDA_DIR = MENAGERIE / "franka_emika_panda"
+PANDA_DIR = ASSETS / "mujoco_menagerie" / "franka_emika_panda"
 SCENE_XML = ASSETS / "scene.xml"
 OUT = ROOT / "out"
-DATA = ROOT / "data"
-EPISODES = DATA / "episodes"
+OUT.mkdir(exist_ok=True)
 
-for _d in (OUT, EPISODES):
-    _d.mkdir(parents=True, exist_ok=True)
-
-# --- simulation -------------------------------------------------------------
+# --- scene ------------------------------------------------------------------
 GRIPPER_SITE = "grasp_site"
 TOP_CAM = "topcam"
-WRIST_CAM = "wristcam"
-SCENE_CAM = "scenecam"
 PERCEPT_CAM = "perceptcam"
-# locate() tries these in order and takes the first confident detection.
+SCENE_CAM = "scenecam"      # angled view, used for the demo video
 PERCEPTION_CAMERAS = (TOP_CAM, PERCEPT_CAM)
 RENDER_W, RENDER_H = 640, 480
 
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
-OBJECTS = ["red_block", "blue_block", "green_block"]
+OBJECTS = ["red_block", "green_block", "blue_block"]
 CONTAINER = "bowl"
 
 # --- inverse kinematics -----------------------------------------------------
-IK_DAMPING = 0.05          # lambda in damped least squares
+IK_DAMPING = 0.05
 IK_MAX_ITERS = 200
-IK_POS_TOL = 0.002         # 2 mm
-IK_MAX_STEP = 0.30         # rad, per-iteration clamp on |dq|
+IK_POS_TOL = 0.002
+IK_MAX_STEP = 0.30
 
 # --- grasping ---------------------------------------------------------------
-APPROACH_HEIGHT = 0.12     # m above target before descending
 WAYPOINT_STEPS = 60
-GRASP_SNAP_DIST = 0.03     # m, weld fallback threshold
 
 # --- models -----------------------------------------------------------------
-# The planner and the multilingual ASR model differ per backend, so their ids
-# live in src/backend.py. These two are torch-only either way.
-ASR_TAMIL = "vasista22/whisper-tamil-medium"
+ASR_MODEL = "openai/whisper-large-v3-turbo"
+LLM_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 DETECTOR = "google/owlv2-base-patch16-ensemble"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
-
-# The Hub clients emit one INFO line per HTTP request and probe a dozen optional
-# config files per model, which buries our own output under hundreds of lines.
-for _noisy in ("httpx", "httpcore", "urllib3", "filelock",
-               "huggingface_hub", "huggingface_hub.utils._http"):
+logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(name)s | %(message)s")
+for _noisy in ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
-logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
-
-os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")

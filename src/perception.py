@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from . import backend, config
+from . import config
 from .memory import release_caches
 from .sim import SimEnv
 
@@ -96,12 +96,12 @@ def _load():
     import torch
     from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-    _device = backend.torch_device()
+    _device = "cuda" if torch.cuda.is_available() else (
+        "mps" if torch.backends.mps.is_available() else "cpu")
     log.info("loading %s on %s", config.DETECTOR, _device)
     _processor = AutoProcessor.from_pretrained(config.DETECTOR)
     _model = (AutoModelForZeroShotObjectDetection
               .from_pretrained(config.DETECTOR).to(_device).eval())
-    release_caches()
     return _model, _processor, _device
 
 
@@ -112,12 +112,12 @@ def detect(rgb: np.ndarray, queries: list[str],
     from PIL import Image
 
     model, processor, device = _load()
+    release_caches()
     image = Image.fromarray(rgb)
     inputs = processor(text=[queries], images=image, return_tensors="pt").to(device)
 
     with torch.no_grad():
         outputs = model(**inputs)
-    release_caches()
 
     target = torch.tensor([[image.height, image.width]])
     post = getattr(processor, "post_process_grounded_object_detection", None) \

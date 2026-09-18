@@ -1,33 +1,18 @@
-# Direct dependencies for local development on Apple Silicon.
-#
-# Hand-maintained, not `pip freeze`. A freeze dump pinned ~90 transitive
-# packages, kept pinning Streamlit's dependency tree long after that UI was
-# removed, and still managed to omit gradio -- which `./run.sh app` needs. Only
-# what the code imports belongs here; pip resolves the rest.
-#
-# The portable (non-MLX) set used on Colab lives in webapp/requirements.txt.
+# What the code imports. One list -- everything runs on PyTorch, including on
+# a Mac, so there is no separate set for Colab.
 
-# simulation
 mujoco==3.12.0
 numpy>=2.0
 scipy>=1.15
 
-# vision and media
-opencv-python>=4.10
+opencv-python>=4.10        # rendering the demo GIF
 pillow>=11.0
 
-# models -- MLX is Apple-Silicon only; src/backend.py falls back to torch
-mlx-lm>=0.31
-mlx-whisper>=0.4
 torch>=2.6
 torchvision>=0.21          # transformers' image pipeline for OWLv2
 transformers>=4.45
 
-# audio capture
-sounddevice>=0.5
+sounddevice>=0.5           # microphone
 
-# web app
 gradio>=6.0
-
-# tests
 pytest>=8.0

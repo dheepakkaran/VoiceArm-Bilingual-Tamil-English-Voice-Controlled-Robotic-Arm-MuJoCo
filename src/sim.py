@@ -32,16 +32,16 @@ GRIPPER_CLOSED = 0.0
 
 
 def build_model() -> mujoco.MjModel:
-    """Compile the scene with the grasp site and wrist camera injected."""
+    """Compile the scene, adding a site between the fingertips.
+
+    The Panda model from mujoco_menagerie has no end-effector site, and MJCF
+    `<include>` cannot add children to a body defined in the included file. So
+    the scene is loaded as a spec, the site is added, and then it compiles --
+    which leaves the vendored model file untouched.
+    """
     spec = mujoco.MjSpec.from_file(str(config.SCENE_XML))
-    hand = spec.body("hand")
-    hand.add_site(name=config.GRIPPER_SITE, pos=_TCP_OFFSET, size=[0.006], rgba=[1, 0, 0, 0])
-    hand.add_camera(
-        name=config.WRIST_CAM,
-        pos=[0.05, 0.0, 0.02],
-        quat=[0.7071, 0.0, 0.7071, 0.0],
-        fovy=58,
-    )
+    spec.body("hand").add_site(name=config.GRIPPER_SITE, pos=_TCP_OFFSET,
+                               size=[0.006], rgba=[1, 0, 0, 0])
     model = spec.compile()
     log.info("model compiled: nq=%d nv=%d nu=%d", model.nq, model.nv, model.nu)
     return model

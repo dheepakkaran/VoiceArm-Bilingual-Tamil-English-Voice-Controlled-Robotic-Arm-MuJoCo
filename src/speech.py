@@ -1,92 +1,40 @@
-"""Bilingual speech front-end with a script-based dual-ASR router.
-
-Whisper large-v3 handles English and code-switched Tanglish well but degrades on
-sustained Tamil; `vasista22/whisper-tamil-medium` is far better on Tamil but is
-Tamil-only and produces nonsense on English audio. Neither is a safe default on
-its own, so the router runs the multilingual model first and re-runs the Tamil
-specialist only when the transcript is actually Tamil script.
-"""
+"""Record audio and transcribe it with Whisper."""
 from __future__ import annotations
 
 import logging
-import re
-import time
-from dataclasses import dataclass, field
+import wave
+from dataclasses import dataclass
 
 import numpy as np
+import scipy.signal as sps
 
-from . import backend, config
+from . import config
 from .memory import release_caches
 
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
-TAMIL_BLOCK = re.compile(r"[஀-௿]")
-TAMIL_SCRIPT_THRESHOLD = 0.6
-
-# Whisper's language ID is unstable on short Tamil clips and regularly reports a
-# neighbouring Indic language, transcribing Tamil speech into Kannada, Malayalam
-# or Telugu script. A Tamil-script test alone therefore misses the specialist
-# exactly when it is most needed, so any Indic guess also triggers it.
-INDIC_LANGS = frozenset({"ta", "kn", "ml", "te", "hi", "bn", "mr",
-                         "gu", "pa", "or", "si", "ne", "sa"})
-
-_tamil_pipe = None
-
-# transformers reports language names; the router compares ISO codes.
-_LANG_NAMES = {
-    "tamil": "ta", "hindi": "hi", "kannada": "kn", "malayalam": "ml",
-    "telugu": "te", "english": "en", "bengali": "bn", "marathi": "mr",
-    "gujarati": "gu", "punjabi": "pa", "sanskrit": "sa", "nepali": "ne",
-}
-
-
-# Only digital silence / a muted or unpermitted mic is gated on level. Quiet
-# speech still transcribes fine, and Whisper judges that far better than a fixed
-# amplitude cutoff does -- the empty-transcript check below is the real guard.
 SILENCE_RMS = 0.002
-QUIET_RMS = 0.012
 
-
-class SpeechUnavailable(RuntimeError):
-    """Raised when no ASR backend could be loaded."""
+_pipe = None
 
 
 class NoSpeechDetected(RuntimeError):
-    """Raised when the clip is silent or every backend returned an empty string.
+    """The clip was silent, or Whisper returned nothing.
 
-    This has to stop the pipeline rather than pass an empty string downstream:
-    the planner LLM will happily invent a plausible instruction from nothing,
-    which looks like a successful run but is pure hallucination.
+    This has to stop the pipeline. An empty transcript passed on to the planner
+    does not fail -- the model invents a plausible instruction from nothing and
+    the arm runs it, which looks exactly like success.
     """
 
 
 @dataclass
 class Transcript:
     text: str
-    source: str                       # "multilingual" | "tamil_specialist"
-    lang: str
-    latency_s: float
-    candidates: dict[str, str] = field(default_factory=dict)
+    language: str
 
 
-def tamil_ratio(text: str) -> float:
-    """Fraction of alphabetic characters that are Tamil.
-
-    Combining vowel signs live in the Tamil block but are not alphabetic, so
-    they are excluded from both sides -- counting them in the numerator only
-    pushes the ratio above 1.0.
-    """
-    letters = [c for c in text if c.isalpha()]
-    if not letters:
-        return 0.0
-    tamil = sum(1 for c in letters if TAMIL_BLOCK.match(c))
-    return tamil / len(letters)
-
-
-# --- capture ----------------------------------------------------------------
 def record(seconds: float = 5.0) -> np.ndarray:
-    """Record mono float32 audio from the default input device."""
     import sounddevice as sd
 
     log.info("recording %.1f s", seconds)
@@ -97,14 +45,11 @@ def record(seconds: float = 5.0) -> np.ndarray:
 
 
 def load_wav(path: str) -> np.ndarray:
-    """Read a wav file as mono float32 at 16 kHz without needing ffmpeg."""
-    import wave
-
-    import scipy.signal as sps
-
+    """Read a wav as mono float32 at 16 kHz, without needing ffmpeg."""
     with wave.open(path, "rb") as w:
-        rate, frames, width, channels = (w.getframerate(), w.readframes(w.getnframes()),
-                                         w.getsampwidth(), w.getnchannels())
+        rate, frames = w.getframerate(), w.readframes(w.getnframes())
+        width, channels = w.getsampwidth(), w.getnchannels()
+
     dtype = {1: np.int8, 2: np.int16, 4: np.int32}[width]
     audio = np.frombuffer(frames, dtype=dtype).astype(np.float32)
     audio /= float(np.iinfo(dtype).max)
@@ -115,164 +60,40 @@ def load_wav(path: str) -> np.ndarray:
     return audio
 
 
-# --- backends ---------------------------------------------------------------
-_multi_pipe = None
-
-
-def transcribe_multilingual(audio: np.ndarray) -> tuple[str, str]:
-    """Transcribe with the multilingual model, returning (text, language)."""
-    if backend.IS_MLX:
-        import mlx_whisper
-
-        res = mlx_whisper.transcribe(audio, path_or_hf_repo=backend.ASR_MULTILINGUAL)
-        return res["text"].strip(), res.get("language", "unknown")
-
-    global _multi_pipe
-    if _multi_pipe is None:
-        import torch
-        from transformers import pipeline
-
-        device = backend.torch_device()
-        log.info("loading %s on %s", backend.ASR_MULTILINGUAL, device)
-        _multi_pipe = pipeline(
-            "automatic-speech-recognition", model=backend.ASR_MULTILINGUAL,
-            device=device, dtype=torch.float32 if device == "cpu" else torch.float16,
-        )
-        release_caches()
-
-    # The transformers pipeline does not report detected language, so ask the
-    # model for the language token explicitly rather than guessing from script.
-    res = _multi_pipe(audio.copy(), return_language=True,
-                      generate_kwargs={"task": "transcribe"})
-    text = res["text"].strip()
-    chunks = res.get("chunks") or []
-    lang = (chunks[0].get("language") if chunks else None) or "unknown"
-    return text, _LANG_NAMES.get(str(lang).lower(), str(lang).lower())
-
-
-def transcribe_tamil(audio: np.ndarray) -> str:
-    """Tamil-only specialist. Never call this without checking the script first."""
-    global _tamil_pipe
-    if _tamil_pipe is None:
-        import torch
-        from transformers import pipeline
-
-        device = backend.torch_device()
-        log.info("loading %s on %s", config.ASR_TAMIL, device)
-        _tamil_pipe = pipeline(
-            "automatic-speech-recognition", model=config.ASR_TAMIL, device=device,
-            dtype=torch.float32 if device == "cpu" else torch.float16,
-        )
-        _tamil_pipe.model.config.forced_decoder_ids = (
-            _tamil_pipe.tokenizer.get_decoder_prompt_ids(language="ta", task="transcribe")
-        )
-        release_caches()
-    return _tamil_pipe(audio.copy())["text"].strip()
-
-
-def trim_silence(audio: np.ndarray, frame_ms: int = 10, pad_ms: int = 200,
-                 rel_threshold: float = 0.08) -> np.ndarray:
-    """Cut leading and trailing silence with energy-based endpointing.
-
-    Whisper hallucinates fluent continuations over trailing silence, so a fixed
-    recording window that ends well after the speaker stops reliably produces
-    invented text appended to an otherwise correct transcript. Trimming to the
-    speech region removes the padding that triggers it.
-    """
-    n = int(SAMPLE_RATE * frame_ms / 1000)
-    if audio.size < n * 3:
-        return audio
-    frames = audio[: audio.size // n * n].reshape(-1, n)
-    energy = np.sqrt(np.mean(np.square(frames), axis=1))
-    if energy.max() <= 0:
-        return audio
-
-    voiced = np.flatnonzero(energy > rel_threshold * energy.max())
-    if voiced.size == 0:
-        return audio
-
-    pad = int(pad_ms / frame_ms)
-    start = max(int(voiced[0]) - pad, 0) * n
-    end = min(int(voiced[-1]) + pad + 1, frames.shape[0]) * n
-    return audio[start:end]
-
-
 def rms(audio: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
 
 
-def route(audio: np.ndarray) -> Transcript:
-    """Transcribe, dispatching to the Tamil specialist when the script warrants."""
-    t0 = time.perf_counter()
-    audio = trim_silence(audio)
+def _load():
+    global _pipe
+    if _pipe is None:
+        import torch
+        from transformers import pipeline
+
+        device = "cuda" if torch.cuda.is_available() else (
+            "mps" if torch.backends.mps.is_available() else "cpu")
+        log.info("loading %s on %s", config.ASR_MODEL, device)
+        _pipe = pipeline("automatic-speech-recognition", model=config.ASR_MODEL,
+                         device=device,
+                         dtype=torch.float32 if device == "cpu" else torch.float16)
+    return _pipe
+
+
+def transcribe(audio: np.ndarray) -> Transcript:
     level = rms(audio)
     if level < SILENCE_RMS:
         raise NoSpeechDetected(
-            f"clip is digitally silent (rms {level:.4f}); the mic is muted or "
-            "input permission is denied"
-        )
-    if level < QUIET_RMS:
-        log.warning("quiet clip (rms %.4f) -- transcription may be unreliable", level)
-    try:
-        text, lang = transcribe_multilingual(audio)
-    except Exception as exc:
-        raise SpeechUnavailable(f"multilingual ASR failed: {exc}") from exc
-
-    candidates = {"multilingual": text}
-    source = "multilingual"
-
-    base_ratio = tamil_ratio(text)
-    if base_ratio > TAMIL_SCRIPT_THRESHOLD or lang in INDIC_LANGS:
-        try:
-            ta_text = transcribe_tamil(audio)
-            candidates["tamil_specialist"] = ta_text
-            # Prefer the specialist whenever it produced Tamil script. Measured
-            # on 4 synthesised Tamil sentences the specialist averaged 9.7% CER
-            # against 85.8% for the multilingual model, which fails two ways on
-            # Tamil: it loops and emits the sentence twice, and it sometimes
-            # decodes into a neighbouring script. Both failures still look like
-            # confident Tamil-script output, so the choice cannot be made on
-            # script alone -- it has to default to the specialist.
-            if ta_text and tamil_ratio(ta_text) > TAMIL_SCRIPT_THRESHOLD:
-                text, source = ta_text, "tamil_specialist"
-        except Exception as exc:
-            log.warning("Tamil specialist unavailable (%s), keeping multilingual output",
-                        type(exc).__name__)
-
-    if not text.strip():
-        raise NoSpeechDetected(
-            f"every ASR backend returned an empty transcript (audio rms {level:.4f})"
+            f"clip is silent (rms {level:.4f}); the mic is muted or permission "
+            "is denied"
         )
 
     release_caches()
-    return Transcript(text=text, source=source, lang=lang,
-                      latency_s=time.perf_counter() - t0, candidates=candidates)
+    result = _load()(audio.copy(), return_language=True,
+                     generate_kwargs={"task": "transcribe"})
+    text = result["text"].strip()
+    if not text:
+        raise NoSpeechDetected(f"Whisper returned nothing (rms {level:.4f})")
 
-
-def clean_transcript(text: str) -> str:
-    """Normalise a code-switched transcript into one clear intent sentence.
-
-    Neither ASR model handles Tamil-English code-switching well and the router
-    cannot repair it -- it only picks between two imperfect transcripts. The
-    planner LLM is far better at reading Tanglish, so it gets a pass at the raw
-    text before planning.
-    """
-    from .planner import CLEANUP_PROMPT, _generate
-
-    if not text.strip():
-        raise NoSpeechDetected("refusing to clean an empty transcript")
-
-    try:
-        out = _generate(text, system=CLEANUP_PROMPT)
-        cleaned = re.sub(r"<think>.*?</think>", "", out, flags=re.DOTALL).strip()
-        cleaned = cleaned.splitlines()[0].strip().strip('"') if cleaned else ""
-        # A plan leaking through means the wrong prompt won; keep the transcript
-        # rather than logging JSON as the user's words.
-        if not cleaned or cleaned.startswith(("[", "{")):
-            log.warning("transcript cleanup returned %r, keeping raw text", cleaned[:60])
-            return text
-        return cleaned
-    except Exception as exc:
-        log.warning("transcript cleanup unavailable (%s), using raw text",
-                    type(exc).__name__)
-        return text
+    chunks = result.get("chunks") or []
+    language = str((chunks[0].get("language") if chunks else None) or "unknown")
+    return Transcript(text=text, language=language)
