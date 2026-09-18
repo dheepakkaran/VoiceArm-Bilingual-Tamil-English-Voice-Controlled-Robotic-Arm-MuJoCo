@@ -1,48 +1,50 @@
 # VoiceArm
 
-**Bilingual voice-controlled robot arm in MuJoCo.**
+**A robot arm you can talk to in Tamil or English.**
 
-Say something in Tamil, English, or Tanglish and a simulated Franka Panda does
-it. Speech is transcribed, turned into a task plan by a local language model,
-the named object is found in the camera image, and inverse kinematics executes
-the pick-and-place. Everything runs on-device -- no cloud API.
+I say something like "sivappu block-ah bowl-la vai" and a simulated Franka Panda
+arm picks up the red block and puts it in the bowl. It works in Tamil, English,
+or the two mixed together, which is how I actually talk.
 
-> Simulation only. No sim-to-real transfer is claimed.
+Everything runs on my laptop. No API keys, no cloud.
+
+> This is simulation only. I haven't tried it on a real arm.
 
 ![pick and place](docs/media/demo.gif)
 
-*`sivappu block-ah bowl-la vai` -- spoken Tanglish, planned and executed in 4.9 s.*
+*"sivappu block-ah bowl-la vai" -- spoken, took 4.9 seconds end to end.*
 
 ## How it works
 
 ```
   mic --> whisper-large-v3 -----+
-                                +--> language router --> transcript
+                                +--> which model won? --> transcript
           whisper-tamil-medium -+                            |
                                                              v
-                                                Qwen3-4B planner (local)
-                                                             |  JSON plan
+                                                    Qwen3-4B makes a plan
+                                                             |  JSON steps
                                                              v
-  camera RGB+depth --> OWLv2 --> 3D position --> inverse kinematics
+  camera RGB+depth --> OWLv2 finds the object --> IK moves the arm
                                                              |
                                                              v
-                                              MuJoCo execution --> episode log
+                                                  MuJoCo runs it --> CSV log
 ```
 
-The planner outputs plain text like `"a red cube"`, and that string goes
-straight to the detector as a search query -- so there is no fixed list of
-objects anywhere in the code.
+Two speech models run, and I pick whichever one did better on Tamil. The plan
+comes back as JSON like `{"action": "pick", "target": "a red cube"}`. That
+`"a red cube"` string goes straight to the object detector as a search query, so
+I never had to write a list of objects anywhere.
 
 ## Try it
 
-**On a free GPU, one click:**
+**Free GPU, one click:**
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo/blob/main/notebooks/voicearm_demo.ipynb)
 
-The notebook clones the repo, installs everything, runs each stage, and opens the
-web app with a public link. About 30-60 s per command on a T4.
+The notebook clones this repo, installs everything, runs each stage, and starts
+the web app with a public link. Around 30-60 seconds per command on a Colab T4.
 
-**Locally:**
+**On your own machine:**
 
 ```bash
 git clone https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo.git
@@ -56,43 +58,41 @@ cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
 ./run.sh test    # 29 tests
 ```
 
-`setup.sh` builds a virtualenv and downloads only the Franka Panda from
-`mujoco_menagerie` (36 MB) instead of cloning the whole thing. On Apple Silicon
-the models run through MLX at about 4.9 s per command; `src/backend.py` picks
-that automatically.
+`setup.sh` makes a virtualenv and downloads just the Franka Panda from
+`mujoco_menagerie` (36 MB) instead of the whole repo. On a Mac it uses MLX and
+takes about 4.9 seconds per command; on anything else it uses PyTorch. I didn't
+want to maintain two versions, so `src/backend.py` just checks which one is
+available.
 
-Add `--share` to the app for a public `*.gradio.live` link tunnelled to your
-machine, which lasts while the process is up.
+`./run.sh app --share` gives you a public `*.gradio.live` link that works while
+the process is running.
 
-## Results
+## What I measured
 
 | | |
 |---|---|
 | Inverse kinematics | 10/10 random targets within 5 mm (mean 0.44 mm) |
-| Pick and place | 3/3 blocks placed, 1.7 mm from the container centre |
-| Object localization | 12/12 within 3 cm over 3 shuffled layouts, mean 0.67 cm |
-| Commands executed | 8/8 held-out, across English, Tanglish and Tamil script |
-| Tamil transcription | 4.8% mean CER over 18 runs, 0% median |
-| Latency, warm | 7.3 s end to end on an M5 |
+| Pick and place | 3/3 blocks landed in the bowl, 1.7 mm off centre |
+| Finding objects | 12/12 within 3 cm across 3 shuffled layouts, mean 0.67 cm |
+| Running commands | 8/8, English + Tanglish + Tamil script |
+| Tamil transcription | 4.8% character error over 18 runs |
+| Speed once warm | 7.3 seconds end to end |
 
-Full tables, the ASR comparison, and what broke along the way are in
-[NOTES.md](NOTES.md).
+Small numbers, and I say so where it matters. Full tables and the bugs I hit are
+in [NOTES.md](NOTES.md) -- that file is more interesting than this one.
 
-## What is in here
+## Files
 
 ```
-src/            the pipeline -- sim, kinematics, grasping, perception,
-                planner, speech, executor, episode logging
-scripts/        one runnable script per stage, plus the ASR benchmark
-webapp/         the Gradio app (used locally, with --share, and on Colab)
+src/            the actual pipeline -- simulation, kinematics, grasping,
+                the object detector, the planner, speech, logging
+scripts/        one script per stage so I could test them separately
+webapp/         the Gradio app (local, --share, and Colab all use this file)
 notebooks/      the Colab notebook
-tests/          29 smoke tests
+tests/          29 tests
 assets/         the MuJoCo scene
-docs/media/     the GIF and screenshots this README uses
+docs/media/     the GIF and screenshots
 ```
-
-`src/backend.py` runs the same code two ways: MLX on Apple Silicon, PyTorch and
-transformers everywhere else. Details in [NOTES.md](NOTES.md).
 
 ## Built with
 
@@ -100,5 +100,4 @@ MuJoCo · Franka Emika Panda · OWLv2 · Qwen3-4B · Whisper · MLX · PyTorch �
 
 ## License
 
-Apache 2.0. The Panda model is (c) Franka Emika, redistributed from
-`mujoco_menagerie` under the same license.
+Apache 2.0. The Panda model is Franka Emika's, from `mujoco_menagerie`.

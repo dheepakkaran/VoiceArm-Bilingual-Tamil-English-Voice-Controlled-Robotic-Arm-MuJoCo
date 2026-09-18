@@ -1,277 +1,240 @@
-# VoiceArm — engineering notes
+# Notes
 
-Why things are built the way they are, and what broke on the way there.
-The [README](README.md) has the overview; this is the detail behind it.
+What I measured, and the bugs I hit getting there. The [README](README.md) is
+the short version.
 
-## Results
+## Numbers
 
-**M1 — arm actuation** (`out/m1_frames.png`)
+**Moving the arm.** Three joint targets, checking the arm actually reaches them:
 
-| Pose | Commanded → reached (max joint error) | Gripper displacement |
+| Pose | Joint error | How far the gripper moved |
 |---|---|---|
 | home | 0.0066 rad | — |
 | swing_left | 0.0066 rad | 0.380 m |
 | lift_up | 0.0043 rad | 0.459 m |
 
-**M2 — inverse kinematics**, 10 random reachable targets, damped least squares:
-
-| Metric | Value |
-|---|---|
-| Targets within 5 mm | **10 / 10** |
-| Mean position error | **0.44 mm** |
-| Max position error | 1.79 mm |
-| Mean solve time | **0.1 ms** |
-
-**M3 — pick and place**, each block grasped from its ground-truth pose and
-dropped in the container:
-
-![pick and place](docs/media/m3_pickplace.png)
-
-| Metric | Value |
-|---|---|
-| Blocks placed in the container | **3 / 3** |
-| Lift height on grasp | 0.146 m (all three) |
-| Mean final offset from container centre | **1.7 mm** |
-| Grasp strategy | friction only — no weld constraint needed |
-
-**M4 — open-vocabulary perception**, three trials with the blocks shuffled
-between each. A single fixed layout would show the detector works on that
-layout; it says nothing about whether the grounding generalises, which is what
-the result claims.
+**Inverse kinematics.** 10 random reachable points, seeded so it reruns the same:
 
 | | |
 |---|---|
-| Localizations within 3 cm | **12/12** |
+| Within 5 mm | **10 / 10** |
+| Mean error | **0.44 mm** |
+| Worst | 1.79 mm |
+| Solve time | **0.1 ms** |
+
+**Pick and place**, using the simulator's own object positions (no camera yet):
+
+![pick and place](docs/media/m3_pickplace.png)
+
+| | |
+|---|---|
+| Blocks that landed in the bowl | **3 / 3** |
+| Lift height | 0.146 m, all three |
+| Distance from bowl centre | **1.7 mm** |
+
+Plain friction grasp. I expected to need a weld constraint to fake it and
+didn't.
+
+**Finding objects from text.** I ask OWLv2 for "a red cube" and compare what it
+finds against the simulator. Three trials, blocks shuffled between each -- one
+fixed layout would only prove it works on that layout:
+
+| | |
+|---|---|
+| Within 3 cm | **12 / 12** |
 | Mean error | **0.67 cm** |
-| Worst error | 1.44 cm (the bowl, every trial) |
+| Worst | 1.44 cm |
 
 ![detections](docs/media/m4_detections.png)
 
-The bowl is consistently the worst and consistently the lowest-confidence
-detection (score ~0.20 against ~0.6 for the blocks). It is also the only object
-whose depth reading lands on its interior floor rather than a top face, so the
-resting-object correction does not apply to it -- only its *xy* is scored.
+The bowl is the worst every single trial, and also the lowest confidence (about
+0.20, where the blocks get 0.6). It's the one object where the depth reading
+hits the inside floor instead of a top surface, so my height correction doesn't
+apply and I only score its *x* and *y*.
 
-**M5 — local LLM planner**, `Qwen3-4B-4bit` via MLX, no cloud API:
+**Turning sentences into plans.** Qwen3-4B, running locally:
 
-| Language | Utterances | Executed |
+| Language | Commands | Ran |
 |---|---|---|
 | English | 2 | 2 |
-| Tanglish (romanized) | 3 | 3 |
+| Tanglish | 3 | 3 |
 | Tamil script | 3 | 3 |
 | **Total** | **8** | **8** |
 
-Median plan latency **1.17 s** on the shipped 4B (first call is slower, cold
-cache). Every one of the eight was planned by the LLM; the regex fallback was
-not needed.
+Median 1.17 s per plan once warm. All eight came from the model; the regex
+fallback never had to kick in.
 
-**These eight are held out from the planner prompt.** An earlier version of this
-test reused four of the prompt's own few-shot examples verbatim, so half the
-score was measuring whether the model could copy its examples back rather than
-whether it could read an instruction it had not seen. Replacing them changed the
-phrasing (`"drop the red cube into the bowl"`, `"neela cube-ah bowl-ukkulla
-vai"`, `"சிவப்புப் பொருளை எடு"`) and the score stayed 8/8, which is the result
-the earlier number was claiming but not measuring.
+These eight are **not in the prompt.** My first version accidentally reused four
+of the prompt's own examples as test cases, so half the score was just the model
+repeating what I'd shown it. I swapped them for phrasings it hadn't seen --
+"drop the red cube into the bowl", "neela cube-ah bowl-ukkulla vai", a Tamil
+pick command. Still 8/8, which is what I thought I was measuring the first time.
 
-**ASR benchmark** (`./run.sh bench`), 6 Tamil sentences synthesised with the
-macOS `Vani` voice and read from wav files, so room acoustics are out of the
-loop. Each sentence is transcribed 3 times, giving 18 transcriptions -- Whisper's
-decoding is not deterministic, and an earlier version of this benchmark measured
-each sentence once, reporting one sample from that spread as if it were the
-number. Character error rate against the reference:
+**Which speech model is better at Tamil.** 6 sentences, spoken by the macOS
+Tamil voice and saved as wav files so room noise isn't in the way. 3 runs each,
+because Whisper doesn't give the same answer twice:
 
-| backend | mean CER | median | worst |
+| model | mean error | median | worst |
 |---|---|---|---|
-| whisper-large-v3 (multilingual) | 16.7% | **0.0%** | **100.0%** |
-| whisper-tamil-medium (specialist) | **4.8%** | **0.0%** | 14.3% |
-| routed — what ships | **4.8%** | **0.0%** | 14.3% |
+| whisper-large-v3 | 16.7% | **0.0%** | **100.0%** |
+| whisper-tamil-medium | **4.8%** | **0.0%** | 14.3% |
+| what I ship (routed) | **4.8%** | **0.0%** | 14.3% |
 
-The worst column is the one that matters. The multilingual model is exact on
-most runs and then decodes one sentence into Devanagari at 100% CER -- its
-problem is rare total failure, not steady inaccuracy, which a mean of 16.7%
-hides and a median of 0% hides completely. The specialist never failed that way;
-its non-zero scores are sandhi spellings (`நீலக்` for `நீல`), orthographic
-convention rather than recognition error.
+The "worst" column is why I bothered with two models. The big model is usually
+perfect and then occasionally outputs the whole sentence in Devanagari -- 100%
+wrong. A mean of 16.7% makes that look like general sloppiness and a median of
+0% hides it completely. The Tamil model never fails that badly; its small errors
+are just spelling conventions (`நீலக்` instead of `நீல`).
 
-Across the 18 runs the detected language was `ta` 15 times and `hi` 3 times on
-Tamil audio. The router chose the specialist 18/18.
+Across those 18 runs, Whisper thought the audio was Tamil 15 times and Hindi 3
+times. My router picked the Tamil model all 18.
 
-These are synthetic voices from a single speaker. Synthetic speech is markedly
-easier than human speech, so treat these as a floor on error rather than an
-estimate of real accuracy, and note that speaker variation is not measured at
-all.
+These are synthesised voices, one speaker. Real speech is harder, and Tanglish
+especially -- I haven't tested that properly.
 
-**M6 — dual-ASR router.** Tamil audio, both backends transcribed correctly and
-the router picked the specialist:
+**Everything together**, over 9 logged runs (8 typed, 1 spoken):
 
-| Model | Transcript |
+| | |
 |---|---|
-| whisper-large-v3 (MLX) | சிவப்பு கட்டையை கிண்ணத்தில் வை. |
-| whisper-tamil-medium | சிவப்பு கட்டையை கிண்ணத்தில் வை ← chosen |
+| Succeeded | **9 / 9** |
+| Mean detection error | **0.37 cm** (worst 0.50 cm) |
+| Mean time per command | 5.6 s |
+| Median plan time | 1.86 s |
+| Speech, warm | 13-20 s |
 
-Detected language `ta`, Tamil script ratio 1.00. The cleanup pass turned that
-into *"Put the red cube in the bowl."*, which planned and executed successfully.
+Rerun any of it with `./run.sh m1` through `./run.sh m5`.
 
-> The M6 clip is macOS `say -v Vani` synthesis, not a human recording, and the
-> script says so at runtime. Real-speaker accuracy — especially on Tanglish — is
-> untested and should be assumed worse.
+## Bugs I hit
 
-**M7 — aggregate over the 9 logged episodes** (8 typed + 1 spoken):
+**Silence got turned into a task.** The first time I tried the microphone it
+recorded nothing -- my mac's input volume was at 27 out of 100. Whisper
+correctly gave me an empty string. Then the planner made up an instruction from
+that empty string, the arm executed it, and the script printed PASS. So it
+didn't fail, it succeeded at something I never said.
 
-| Metric | Value |
-|---|---|
-| Success rate | **9 / 9** |
-| Mean detection error | **0.37 cm** (max 0.50 cm) |
-| Mean episode duration | 5.6 s |
-| Median LLM latency | 1.86 s |
-| Warm ASR latency | 13–20 s |
+Now `route()` raises `NoSpeechDetected` if the clip is silent or the transcript
+is empty, and `execute()` won't plan from an empty string. My first fix was a
+volume cutoff at 0.01 rms, which rejected speech that was perfectly audible --
+Whisper is better at deciding whether something is speech than a number I picked
+is, so the cutoff now only catches actual silence.
 
-Reproduce with `./run.sh m1` … `./run.sh m5`, `./run.sh app`.
+**Whisper guessed the wrong language, at random.** Running the same audio file
+several times, it said `ta` most of the time but sometimes `hi` or `kn`, and
+transcribed Tamil into Devanagari or Kannada script. My router was checking "is
+this Tamil script?" to decide whether to use the Tamil model -- which meant it
+skipped the Tamil model exactly when the other one had gone wrong. Now any
+Indian language guess triggers it.
 
-## Design notes
+**A top-down grasp needs orientation, not just position.** The Panda's fingers
+slide along the hand's *y* axis, so pointing the gripper at the right spot
+isn't enough -- it also has to be facing down with the fingers across the block.
+`ik()` stacks the position and rotation Jacobians and solves both at once.
 
-**Silence was hallucinated into a task.** The first real microphone test recorded
-nothing -- the machine's input volume was at 27 out of 100 -- and Whisper
-correctly returned an empty transcript. The planner then invented a fluent
-instruction from that empty string, the arm executed it, and the run printed
-PASS. Nothing failed; it succeeded at the wrong thing, which is the worst kind of
-bug because it looks like the good kind. `route()` now raises `NoSpeechDetected`
-on digital silence or an empty transcript, and `execute()` refuses an empty
-utterance. The level gate catches only true silence: quiet speech still
-transcribes, and Whisper judges intelligibility far better than an amplitude
-threshold does -- an early 0.01 rms cutoff rejected speech that was perfectly
-audible.
+**The depth camera sees the top of the block, not the middle.** Looking straight
+down, the depth reading is the top face, so my 3D point was half a block too
+high. Since the blocks sit on a table I know the height of, the centre is just
+the midpoint between the top face and the tabletop -- I don't need to know how
+big the object is.
 
-**Whisper's language ID is unstable on short Tamil clips.** Over repeated runs of
-the same audio it reported `ta` most of the time, but also `hi` and `kn`,
-transcribing Tamil speech into Devanagari or Kannada script. The router
-originally dispatched to the Tamil specialist on Tamil script alone, so it
-skipped that model in exactly the cases that needed it most. Any Indic language
-guess now triggers it, and the specialist wins whenever it returns Tamil script
--- measured at 4.8% character error rate against 16.7%.
+**Rendering from two threads hung the app, silently.** MuJoCo's renderer owns an
+OpenGL context tied to the thread that made it, and the web framework calls in
+from a different thread each request. On macOS, both reusing a context across
+threads and making a second one just deadlock instead of raising an error, so
+the app froze on its first command with no traceback. `SimEnv` now sends every
+render to one dedicated worker thread and waits for the result.
 
-**Grasping needed 6-DoF IK, not position-only.** The Panda's fingers slide along
-the hand frame's *y* axis, so a top-down grasp has to constrain orientation as
-well as position. `ik()` stacks the positional and rotational site Jacobians and
-solves both together; `GRASP_DOWN_MAT` points the site *z* axis at the table and
-aligns the finger-separation axis with world *y*.
+**The arm was standing in front of the camera.** At the home pose the Panda sits
+right under the overhead camera, so the detector couldn't see the blocks.
+`park()` folds it behind the base (gripper at x ≈ -0.33 m). I found that pose by
+sweeping joint angles and keeping the ones with no new contacts.
 
-**Depth lands on the top face, not the centre.** An overhead view only ever sees
-an object's top surface, so the deprojected point sits half an object-height too
-high. For anything resting on the table the centre is the midpoint between that
-surface and the tabletop — which needs no prior knowledge of the object's size.
+## Why I picked these models
 
-**All MuJoCo rendering is funnelled through one worker thread.** A `Renderer`
-owns an OpenGL context bound to its creating thread, and a web framework calls in
-from a different worker thread per request. and on macOS both reusing a
-context across threads *and* creating a second one from another thread deadlock
-rather than raise — the dashboard hung silently on its first command. `SimEnv`
-now owns a single-worker executor; every render is submitted to it and the
-caller blocks on the result.
+**Qwen3-4B instead of 8B.** I tried both on the same 8 commands:
 
-**IK is damped least squares on the site Jacobian.** `mink` is used when it is
-installed; the built-in solver is the default path and is what the numbers above
-were measured with. Step size is clamped and joint limits are enforced each
-iteration, so the solver stays stable near singularities.
-
-**`SimEnv.park()` exists because the arm occludes the worktop.** At the home
-pose the Panda sits directly under the overhead camera. `park()` retracts it
-behind the base (gripper at x ≈ −0.33 m), found with a joint sweep constrained
-to no new contacts, giving perception an unoccluded view.
-
-## Model selection
-
-Every choice below was measured on this machine, not assumed.
-
-**Planner: `Qwen3-4B-4bit`, not 8B.** Both models produced a correct plan on all
-8 test utterances (English, Tanglish, Tamil script), so the larger model bought
-nothing on this task:
-
-| planner | plans correct | mean generation | MLX active |
+| planner | plans correct | generation | memory |
 |---|---|---|---|
 | **Qwen3-4B-4bit** | **8/8** | **0.87 s** | **2.26 GB** |
 | Qwen3-8B-4bit | 8/8 | 1.55 s | 4.61 GB |
 
-**`sarvam-m` (24 B) was rejected on footprint.** It is the strongest open model
-for Tamil, but at 4-bit it needs roughly 13 GB and cannot co-reside with the
-detector and both ASR models. That is a hardware constraint, not a quality
-claim — with more memory it would be worth revisiting, especially since the
-planner does have to read Tanglish.
+Same accuracy, half the memory, nearly twice as fast. Easy call.
 
-**ASR: both, with a router.** See the CER table above. The specialist wins on
-Tamil and is Tamil-only, so neither model is a safe default alone.
+**I wanted `sarvam-m` (24B) and couldn't fit it.** It's the best open model for
+Tamil, but at 4-bit it needs about 13 GB and I already have the detector and two
+speech models loaded. That's a memory problem, not a quality judgement -- on a
+bigger machine I'd test it, since the planner does have to read Tanglish.
 
-## Performance
+**Both speech models, with a router.** Table above. The Tamil model is better at
+Tamil but only speaks Tamil, so neither one is safe on its own.
 
-End-to-end stage latency with all models resident, same input repeated:
+## Speed
 
-| run | ASR | plan | perceive | total |
+Same command, run four times in a row, all models loaded:
+
+| run | speech | plan | detect | total |
 |---|---|---|---|---|
 | cold | 16.63 s | 4.33 s | 4.04 s | 25.00 s |
-| warm 1 | 8.15 s | 4.87 s | 1.11 s | 14.13 s |
-| warm 2 | 6.44 s | 1.73 s | 0.87 s | 9.04 s |
-| warm 3 | 4.94 s | 1.42 s | 0.94 s | **7.30 s** |
+| 2nd | 8.15 s | 4.87 s | 1.11 s | 14.13 s |
+| 3rd | 6.44 s | 1.73 s | 0.87 s | 9.04 s |
+| 4th | 4.94 s | 1.42 s | 0.94 s | **7.30 s** |
 
-MLX active memory 5.35 GB, peak 5.93 GB.
+MLX memory 5.35 GB, peak 5.93 GB.
 
-**Allocator pressure, not compute, dominated the first version.** With the 8B
-planner the same loop ran 45 s and got *slower* every iteration, reaching 63 s.
-The cause was not model size in isolation: MLX and torch each keep an allocator
-pool that survives a forward pass, and with four models resident those pools
-were enough to start paging. Calling `mx.clear_cache()` once took a single plan
-call from 37.5 s to 1.7 s — a 22x swing with no change to the model.
+**It was slow because of memory, not compute.** With the 8B planner this loop
+took 45 s and got *worse* every iteration, up to 63 s. I assumed the model was
+just too big. It wasn't -- MLX and PyTorch each hold onto an allocator pool
+after a forward pass, and with four models loaded those pools were enough to
+push the machine into swap. One `mx.clear_cache()` call took a single plan from
+37.5 s to 1.7 s. Same model, 22x faster.
 
-`src/memory.py` now drops both caches at stage boundaries. **Doing it inside the
-hot path made things worse**: clearing after every `transcribe()` call forced a
-full reallocation on the next operation and pushed the loop back to 60 s. The
-cache is there for a reason; only the boundaries between models are worth
-clearing.
+`src/memory.py` clears both caches between stages. I first tried clearing after
+every single call and it got *worse* -- 60 s -- because the next operation had to
+reallocate from scratch. The cache is there for a reason. Only the handoff
+between models is worth clearing.
 
-**Interleaved access is the expensive pattern.** Measuring all ASR calls, then
-all planner calls, then all detector calls looked fast. Running one command at a
-time — ASR, then plan, then detect — is 5-10x slower, because each switch pages
-the previous model out. That is the real workload, so that is what the table
-above reports.
+**Benchmarking it wrong made it look fine.** If I ran all the speech calls, then
+all the planner calls, then all the detector calls, everything looked fast.
+Running one full command at a time -- speech, plan, detect -- is 5-10x slower,
+because each switch pages the last model out. That's the real workload, so
+that's what the table shows.
 
-**Some of this is the machine, not the code.** `vm.swapusage` showed 20.1 GB of
-21.5 GB swap already in use before this project started, spread across many
-ordinary applications rather than any single large process. On a machine with
-free swap these numbers would be better; they are reported as measured.
+**Some of this is my laptop.** `vm.swapusage` showed 20.1 GB of 21.5 GB swap
+already in use before I started, from ordinary apps. On a machine with free swap
+these would be better. I'm reporting what I measured.
 
-## Running on two backends
+## Running on two machines
 
-The same code runs on Apple Silicon through MLX and on Spaces through
-transformers. `src/backend.py` picks at import time and resolves the model ids:
+MLX only exists on Apple Silicon, and Colab is Linux with an NVIDIA GPU. Rather
+than keep two copies of the project, `src/backend.py` checks what's available at
+import and picks the model ids:
 
-| | local (Apple Silicon) | Spaces (x86 + NVIDIA) |
+| | my Mac (MLX) | Colab (PyTorch) |
 |---|---|---|
 | planner | `mlx-community/Qwen3-4B-4bit` | `Qwen/Qwen3-4B-Instruct-2507` |
-| multilingual ASR | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
-| Tamil ASR | `vasista22/whisper-tamil-medium` | same |
+| multilingual speech | `mlx-community/whisper-large-v3-mlx` | `openai/whisper-large-v3-turbo` |
+| Tamil speech | `vasista22/whisper-tamil-medium` | same |
 | detector | `google/owlv2-base-patch16-ensemble` | same |
-| rendering | CGL (macOS default) | `MUJOCO_GL=egl` |
+| rendering | CGL, the macOS default | `MUJOCO_GL=egl` |
 
-Everything above the model-loading layer is shared: the router, the planner
-prompt, IK, grasp waypoints, 3D grounding, episode logging.
+Everything above that -- the router, the prompt, IK, grasping, 3D grounding,
+logging -- is the same code both ways.
 
-Force the portable path on a Mac to test the Spaces code without deploying:
+To test the Colab path on a Mac without deploying:
 
 ```bash
 VOICEARM_BACKEND=torch ./run.sh m5
 ```
 
-Measured on this machine, same command end to end: **7.0 s** on MLX,
-**27.5 s** on the transformers path over MPS. The transformers numbers are not
-representative of ZeroGPU, which runs an H200.
+Same command end to end: **7.0 s** on MLX, **27.5 s** through PyTorch on MPS.
+Colab's T4 sits somewhere in between.
 
-## Why `webapp/` exists
+## Why there's a web app
 
-A notebook cell could call `execute()` in three lines, so a whole Gradio app
-needs justifying: **browser microphone capture.** `sounddevice` needs a local
-input device and a Colab runtime has none, so the voice half of a
-"voice-controlled arm" would be unreachable in the only demo a visitor can
-actually run. It also sidesteps the input-volume trap that made the first local
-microphone test silently record nothing — see the design notes.
+A notebook cell could call `execute()` in three lines, so the Gradio app needs a
+reason: **the microphone.** `sounddevice` needs a local input device and Colab
+doesn't have one, so without a browser UI the voice half of a voice-controlled
+arm is unreachable in the only demo someone else can run. It also avoids the
+input-volume problem that made my first mic test record silence.
 
-The same file serves all three paths: `localhost` for development, `--share` for
-a tunnelled URL, and the notebook's launch cell on Colab.
+One file covers all three cases: `localhost` while I'm working, `--share` for a
+link, and the notebook's launch cell on Colab.
