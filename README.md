@@ -135,15 +135,19 @@ in [NOTES.md](NOTES.md).
 
 Every number below is checked against the simulator's own state, which is the
 one oracle I have -- the detector's guess is compared to where MuJoCo actually
-put the object, not to a label I wrote. Reproduce the first two rows with
-`./run.sh check` and the rest with `./run.sh demo`.
+put the object, not to a label I wrote. Reproduce the first two rows with `python scripts/demo.py --check`, which needs
+no models, and the last two with `python scripts/demo.py --all`.
+
+All eight commands run without error. Seven produce the plan that was asked for;
+the eighth produces a valid plan for something slightly different, which is why
+the row says plans rather than runs.
 
 | | |
 |---|---|
 | IK, 10 random reachable targets | **10 / 10 within 5 mm** (mean 0.82 mm, worst 1.82 mm) |
 | Pick and place, each block | **3 / 3 landed in the bowl** |
 | Object position from text query | **within 3 cm**, observed 0.2-0.5 cm |
-| Commands executed, held out from the prompt | **7 / 8** |
+| Plans correct, on commands held out from the prompt | **7 / 8** |
 
 The eight commands span English, romanized Tanglish, and Tamil script. They are
 deliberately *not* the examples in the planner prompt -- an earlier version
@@ -160,17 +164,21 @@ Same command, run repeatedly, on an M5 MacBook with 16 GB:
 
 | | |
 |---|---|
-| First command after start | 10 - 12 s |
-| After that | **1.3 - 2.9 s** |
+| First command after start | 10 - 16 s |
+| After that | **1.3 - 3.5 s** |
 
-Ranges across repeated runs, not a single best case. The first command pays for
-loading three models. After that, a pick-only command is about 1.3 s and a
-pick-and-place about 2.7 s, since the second one plans two steps and runs twice
-as much motion.
+Ranges over repeated runs on the same laptop, not a single best case. The first
+command pays for loading three models. After that a pick-only command is at the
+bottom of the range and a pick-and-place at the top, since it plans two steps and
+runs twice as much motion.
 
-This number was 569 s before I found the memory bug in
-[NOTES.md](NOTES.md#it-was-slow-because-of-memory-not-compute). It was not
-compute.
+It used to take over nine minutes. **Two things fixed that, not one.** Most of it
+was memory: PyTorch holds cached blocks after a forward pass, and with three
+models loaded that pushed a 16 GB laptop into swap, so clearing the caches
+between stages recovered most of the time. The rest was the planner itself, from
+an 8 GB model down to a 3 GB one that fits. Neither alone would have been
+enough, and I did not measure them separately.
+[NOTES.md](NOTES.md#it-was-slow-because-of-memory-not-compute) has the detail.
 
 ## 8. Result: running it
 
@@ -179,8 +187,8 @@ compute.
 | Models loaded at once | 3 -- Whisper 1.6 GB, Qwen2.5-1.5B 3.0 GB, OWLv2 1.5 GB |
 | Machine it was built on | M5 MacBook, 16 GB, no discrete GPU |
 | Also runs on | a free Colab T4, from the notebook below |
-| Dependencies | 10 |
-| Code | 1,581 lines of Python |
+| Dependencies | 8 |
+| Code | about 1,600 lines of Python |
 | External services | none -- no API keys anywhere |
 
 **Free GPU, one click:**
@@ -192,20 +200,30 @@ compute.
 ```bash
 git clone https://github.com/dheepakkaran/VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo.git
 cd VoiceArm-Bilingual-Tamil-English-Voice-Controlled-Robotic-Arm-MuJoCo
-./setup.sh
+python install.py
 ```
 
 ```bash
-./run.sh demo                    # three example commands
-./run.sh demo --text "..."       # your own
-./run.sh demo --mic              # say it out loud
-./run.sh check                   # arm and grasping only, no models
-./run.sh test                    # 12 tests
+python scripts/demo.py --check        # arm and grasping only, no models
+python scripts/demo.py                # three example commands
+python scripts/demo.py --all          # score all eight commands
+python scripts/demo.py --text "..."   # your own
+python scripts/demo.py --mic          # say it out loud
+python -m pytest tests/ -q            # 12 tests
 ```
 
-`setup.sh` builds a virtualenv and fetches only the Franka Panda from
-`mujoco_menagerie` (36 MB). The microphone needs a real input device, so in
-Colab you type the command or pass a wav file -- same pipeline either way.
+(Prefix those with `.venv/bin/python` if the virtualenv is not active, or
+`.venv\Scripts\python` on Windows.)
+
+`install.py` makes a virtualenv and fetches only the Franka Panda from
+`mujoco_menagerie` (36 MB). It is Python rather than a shell script so the same
+command works on macOS, Linux and Windows.
+
+On Linux, MuJoCo also needs `libegl1` and `libosmesa6` to render offscreen, and
+the microphone needs `libportaudio2`. `install.py` prints the apt line.
+
+The microphone needs a real input device, so in Colab you type the command or
+pass a wav file. Same pipeline either way.
 
 ## 9. What broke
 

@@ -66,6 +66,23 @@ The other half of the fix was the model itself. Qwen3-4B in bfloat16 is about
 8 GB. Qwen2.5-1.5B is 3 GB and plans 7 of my 8 test commands correctly, so I use
 that. A bigger model that swaps is slower than a smaller one that fits.
 
+## One import for one line took the whole thing down
+
+After a macOS update the project stopped starting at all. The error was scipy
+failing to load a compiled file, and scipy was imported at the top of
+`speech.py` for exactly one line: resampling a wav that is not already 16 kHz.
+Nothing else used it, and the microphone path never even reaches that line.
+
+The last scipy release that supports Python 3.10 is the one that broke, and
+newer ones need 3.11, so there was no version to upgrade to. Replacing that one
+call with `numpy.interp` removed the dependency entirely. Dropping the unused
+`opencv-python` at the same time took the list from ten packages to eight, and
+that one would have failed on a headless Linux box too, since it needs libGL.
+
+Two things I took from it. A heavy import at module level turns a rare code path
+into a hard requirement for everything. And a dependency nothing imports is not
+free -- it is a way to break on a machine you have not tried.
+
 ## The planner over-plans on pick-only commands
 
 Ask a small model to "pick up the green block" and it helpfully adds a step to

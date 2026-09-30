@@ -1,6 +1,7 @@
 """Run the pipeline and print what happened.
 
     python scripts/demo.py                      # a few example commands
+    python scripts/demo.py --all                # score all eight commands
     python scripts/demo.py --text "..."         # one command
     python scripts/demo.py --mic                # speak it
     python scripts/demo.py --wav clip.wav       # from a recording
@@ -27,6 +28,23 @@ EXAMPLES = [
     "drop the red cube into the bowl",
     "green block-ah edu",
     "நீலக் கட்டையை கிண்ணத்தில் போடு",
+]
+
+# The eight commands the README scores. Each row is the command, the object the
+# plan should name, and whether it should also produce a "place" step.
+#
+# None of these appear in the planner's prompt. An earlier version of this test
+# reused four of the prompt's own examples, so half the score was the model
+# repeating what it had been shown.
+HELD_OUT = [
+    ("english",  "drop the red cube into the bowl",   "a red cube",   True),
+    ("english",  "grab the blue block",               "a blue cube",  False),
+    ("tanglish", "green block-ah edu",                "a green cube", False),
+    ("tanglish", "sivappu kattai-ah bowl-la podu",    "a red cube",   True),
+    ("tanglish", "neela cube-ah bowl-ukkulla vai",    "a blue cube",  True),
+    ("tamil",    "பச்சைக் கட்டையை கிண்ணத்தில் போடு",   "a green cube", True),
+    ("tamil",    "சிவப்புப் பொருளை எடு",               "a red cube",   False),
+    ("tamil",    "நீலக் கட்டையை எடு",                  "a blue cube",  False),
 ]
 
 
@@ -66,6 +84,33 @@ def check(env: SimEnv) -> bool:
     return bool(np.max(errors) < 0.005 and placed == len(config.OBJECTS))
 
 
+def score_held_out(env: SimEnv) -> bool:
+    """Run all eight commands and check the plan against what was asked for."""
+    correct = executed = 0
+    print(f"{'language':<10}{'command':<36}{'s':>6}  plan")
+
+    for language, utterance, want_object, want_place in HELD_OUT:
+        result = execute(env, utterance)
+        executed += bool(result.success)
+
+        named = result.plan[0]["target"].lower() if result.plan else ""
+        placed = any(step["action"] == "place" for step in result.plan)
+        ok = named == want_object and placed == want_place
+        correct += ok
+
+        print(f"{language:<10}{utterance[:34]:<36}{result.duration_s:6.1f}  "
+              f"{'ok  ' if ok else 'WRONG'} "
+              f"{[step['target'] for step in result.plan]}")
+
+    n = len(HELD_OUT)
+    print(f"\nplans correct {correct}/{n}     ran without error {executed}/{n}")
+    if correct < n:
+        print("The known failure is the Tamil pick-only command: the planner "
+              "gets the colour right\nand then adds a place step that was not "
+              "asked for. See NOTES.md.")
+    return correct >= n - 1
+
+
 def run(env: SimEnv, utterance: str) -> bool:
     result = execute(env, utterance)
     print(f"  plan ({result.plan_source}): "
@@ -84,6 +129,8 @@ def main() -> int:
     ap.add_argument("--wav", help="transcribe this file and run it")
     ap.add_argument("--check", action="store_true",
                     help="arm, IK and grasping only, no models")
+    ap.add_argument("--all", action="store_true",
+                    help="score all eight held-out commands")
     ap.add_argument("--seconds", type=float, default=5.0)
     args = ap.parse_args()
 
@@ -92,6 +139,11 @@ def main() -> int:
     if args.check:
         ok = check(env)
         print("\ncheck", "PASSED" if ok else "FAILED")
+        env.close()
+        return 0 if ok else 1
+
+    if args.all:
+        ok = score_held_out(env)
         env.close()
         return 0 if ok else 1
 

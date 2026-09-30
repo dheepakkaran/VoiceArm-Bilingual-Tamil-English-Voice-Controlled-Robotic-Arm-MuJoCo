@@ -6,7 +6,6 @@ import wave
 from dataclasses import dataclass
 
 import numpy as np
-import scipy.signal as sps
 
 from . import config
 from .memory import release_caches
@@ -56,7 +55,14 @@ def load_wav(path: str) -> np.ndarray:
     if channels > 1:
         audio = audio.reshape(-1, channels).mean(axis=1)
     if rate != SAMPLE_RATE:
-        audio = sps.resample(audio, int(len(audio) * SAMPLE_RATE / rate)).astype(np.float32)
+        # Linear resample with numpy. This used to call scipy.signal.resample,
+        # which meant importing scipy at module level for this one branch -- and
+        # when scipy's wheel stopped loading after an OS update, the whole
+        # pipeline went down, not just this line.
+        n = int(len(audio) * SAMPLE_RATE / rate)
+        audio = np.interp(np.linspace(0.0, 1.0, n),
+                          np.linspace(0.0, 1.0, len(audio)),
+                          audio).astype(np.float32)
     return audio
 
 

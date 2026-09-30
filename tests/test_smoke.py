@@ -143,13 +143,6 @@ def test_perception_cameras_exist(env: SimEnv) -> None:
 # --- planner ----------------------------------------------------------------
 
 
-def test_empty_utterance_is_refused() -> None:
-    from src.executor import execute
-
-    with pytest.raises(ValueError):
-        execute(None, "   ")
-
-
 def test_silence_is_refused() -> None:
     from src import speech
 

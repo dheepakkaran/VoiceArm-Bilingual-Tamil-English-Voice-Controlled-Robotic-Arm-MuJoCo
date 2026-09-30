@@ -1,17 +1,20 @@
-# What the code imports. One list -- everything runs on PyTorch, including on
-# a Mac, so there is no separate set for Colab.
+# Only what the code imports. Everything runs on PyTorch, on a Mac as well as
+# on Linux or Windows, so there is one list.
 
+# simulation and maths
 mujoco==3.12.0
 numpy>=2.0
-scipy>=1.15
 
-opencv-python>=4.10        # rendering the demo GIF
+# images, and writing the demo GIF
 pillow>=11.0
 
+# the three models
 torch>=2.6
-torchvision>=0.21          # transformers' image pipeline for OWLv2
+torchvision>=0.21          # transformers needs it for OWLv2's image pipeline
 transformers>=4.45
 
-sounddevice>=0.5           # microphone
+# microphone (needs libportaudio2 on Linux)
+sounddevice>=0.5
 
+# tests
 pytest>=8.0
